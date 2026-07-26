@@ -8,52 +8,97 @@ struct ItemListView: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            List(selectableItems, selection: $selectedItemID) { item in
-                Text(item.content)
-                    .lineLimit(3)
-                    .padding(.vertical, 8)
-                    .tag(item.id)
-                    .id(item.id)
-                    .contentShape(Rectangle())
-                    .onTapGesture(count: 2) {
-                        paste(item)
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    Spacer()
+                    Button {
+                        appDelegate.togglePin()
+                    } label: {
+                        Image(systemName: appDelegate.isPinned ? "pin.fill" : "pin")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(appDelegate.isPinned ? Color.accentColor : .secondary)
+                            .frame(width: 22, height: 22)
+                            .contentShape(Rectangle())
                     }
-                    .onTapGesture {
-                        selectedItemID = item.id
+                    .buttonStyle(.plain)
+                    .help(appDelegate.isPinned ? "取消置顶" : "始终置顶")
+                    .onHover { isHovering in
+                        if isHovering {
+                            NSCursor.pointingHand.push()
+                        } else {
+                            NSCursor.pop()
+                        }
                     }
-            }
-            .focused($isListFocused)
-            .onKeyPress(.upArrow) {
-                moveSelection(by: -1, proxy: proxy)
-                return .handled
-            }
-            .onKeyPress(.downArrow) {
-                moveSelection(by: 1, proxy: proxy)
-                return .handled
-            }
-            .onKeyPress(.return) {
-                pasteSelectedItem()
-                return .handled
-            }
-            .onKeyPress(.escape) {
-                NSApp.hide(nil)
-                return .handled
-            }
-            .onAppear {
-                selectFirstItem()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .clipboardPickerDidOpen)) { _ in
-                selectFirstItem()
-            }
-            .onChange(of: viewModel.itemList.list) {
-                guard let firstItem = selectableItems.first else { return }
-                if selectedItemID == nil {
-                    selectedItemID = firstItem.id
                 }
-                withAnimation {
-                    proxy.scrollTo(firstItem.id, anchor: .top)
+                .padding(.horizontal, 6)
+                .frame(height: 22)
+                .background(Color.clear)
+
+                Divider()
+
+                List(selectableItems, selection: $selectedItemID) { item in
+                    Text(item.content)
+                        .lineLimit(3)
+                        .padding(.vertical, 8)
+                        .tag(item.id)
+                        .id(item.id)
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2) {
+                            paste(item)
+                        }
+                        .onTapGesture {
+                            selectedItemID = item.id
+                        }
+                        .listRowBackground(Color.clear)
+                }
+                .scrollContentBackground(.hidden)
+                .focused($isListFocused)
+                .onKeyPress(.upArrow) {
+                    moveSelection(by: -1, proxy: proxy)
+                    return .handled
+                }
+                .onKeyPress(.downArrow) {
+                    moveSelection(by: 1, proxy: proxy)
+                    return .handled
+                }
+                .onKeyPress(.return) {
+                    pasteSelectedItem()
+                    return .handled
+                }
+                .onKeyPress(.escape) {
+                    NSApp.hide(nil)
+                    return .handled
+                }
+                .onAppear {
+                    selectFirstItem()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .clipboardPickerDidOpen)) { _ in
+                    selectFirstItem()
+                }
+                .onChange(of: viewModel.itemList.list) {
+                    guard let firstItem = selectableItems.first else { return }
+                    if selectedItemID == nil {
+                        selectedItemID = firstItem.id
+                    }
+                    withAnimation {
+                        proxy.scrollTo(firstItem.id, anchor: .top)
+                    }
                 }
             }
+            .background {
+                windowBackground
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var windowBackground: some View {
+        if #available(macOS 26.0, *) {
+            Color.clear
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 10))
+        } else {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(.ultraThinMaterial)
         }
     }
 

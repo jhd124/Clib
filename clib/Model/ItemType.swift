@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum ItemType: Identifiable {
+enum ItemType: String, Identifiable, Codable {
     case text
     case url
     case image

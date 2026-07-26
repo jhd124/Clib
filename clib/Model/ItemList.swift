@@ -8,17 +8,20 @@
 import Foundation
 
 struct ItemList {
-    var list: [Item] = [Item(content: "", type: ItemType.text)]
+    var list: [Item]
     
-    init(list: [Item] = []){
-        self.list.append(contentsOf: list)
+    init(list: [Item] = []) {
+        self.list = list
     }
     
-    mutating func push(content: String, type: ItemType){
-        self.list.insert(Item(content: content, type: type), at: 0)
+    @discardableResult
+    mutating func push(content: String, type: ItemType) -> Item {
+        let item = Item(content: content, type: type)
+        list.insert(item, at: 0)
+        return item
     }
     
-    func peek() -> Item {
-        return self.list[0]
+    func peek() -> Item? {
+        list.first
     }
 }

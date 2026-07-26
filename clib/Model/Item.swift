@@ -7,14 +7,22 @@
 
 import Foundation
 
-struct Item: Identifiable, Equatable {
-    let id = UUID()
+struct Item: Identifiable, Equatable, Codable {
+    let id: UUID
     let content: String
     let type: ItemType
+    let createdAt: Date
     
-    init(content: String, type: ItemType){
+    init(
+        id: UUID = UUID(),
+        content: String,
+        type: ItemType,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
         self.content = content
         self.type = type
+        self.createdAt = createdAt
     }
     
     static func == (lhs: Item, rhs: Item) -> Bool {
