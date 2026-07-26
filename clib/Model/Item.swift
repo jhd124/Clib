@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct Item: Identifiable {
+struct Item: Identifiable, Equatable {
     let id = UUID()
     let content: String
     let type: ItemType
@@ -15,6 +15,10 @@ struct Item: Identifiable {
     init(content: String, type: ItemType){
         self.content = content
         self.type = type
+    }
+    
+    static func == (lhs: Item, rhs: Item) -> Bool {
+        return lhs.type == rhs.type && lhs.content == rhs.content
     }
     
     static func example() -> Item {
