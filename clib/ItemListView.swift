@@ -35,6 +35,10 @@ struct ItemListView: View {
                 pasteSelectedItem()
                 return .handled
             }
+            .onKeyPress(.escape) {
+                NSApp.hide(nil)
+                return .handled
+            }
             .onAppear {
                 selectFirstItem()
             }
