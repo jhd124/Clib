@@ -20,8 +20,22 @@ struct ItemList {
         list.insert(item, at: 0)
         return item
     }
+
+    @discardableResult
+    mutating func push(imageData: Data) -> Item {
+        let item = Item(content: "", type: .image, imageData: imageData)
+        list.insert(item, at: 0)
+        return item
+    }
     
     func peek() -> Item? {
         list.first
+    }
+
+    mutating func replace(_ item: Item) {
+        guard let index = list.firstIndex(where: { $0.id == item.id }) else {
+            return
+        }
+        list[index] = item
     }
 }

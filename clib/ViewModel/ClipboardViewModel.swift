@@ -33,10 +33,18 @@ final class LocalClipboardHistoryStore: ClipboardHistoryStore {
         }
 
         let data = try Data(contentsOf: fileURL)
-        return data
+        let decodedItems = data
             .split(separator: UInt8(ascii: "\n"))
             .compactMap { try? decoder.decode(Item.self, from: Data($0)) }
             .reversed()
+
+        // Editing appends a new revision with the same ID. Keep only its latest
+        // revision while retaining the crash-safe append-only file format.
+        var seenIDs = Set<Item.ID>()
+        return decodedItems
+            .filter { seenIDs.insert($0.id).inserted }
+            .filter { $0.deletedAt == nil }
+            .sorted { $0.createdAt > $1.createdAt }
     }
 
     func append(_ item: Item) throws {
@@ -86,8 +94,12 @@ final class ClipboardViewModel: ObservableObject {
     private let store: ClipboardHistoryStore
     private var clipboardTimer: Timer?
     private var terminationObserver: NSObjectProtocol?
+    private var lastPasteboardChangeCount = -1
 
-    init(store: ClipboardHistoryStore = LocalClipboardHistoryStore()) {
+    init(
+        store: ClipboardHistoryStore = LocalClipboardHistoryStore(),
+        startMonitoring: Bool = true
+    ) {
         self.store = store
 
         do {
@@ -97,20 +109,22 @@ final class ClipboardViewModel: ObservableObject {
             print("读取剪贴板历史失败：\(error)")
         }
 
-        updateClipboardContent()
-        clipboardTimer = Timer.scheduledTimer(
-            withTimeInterval: 1.0,
-            repeats: true
-        ) { [weak self] _ in
-            self?.updateClipboardContent()
-        }
+        if startMonitoring {
+            updateClipboardContent()
+            clipboardTimer = Timer.scheduledTimer(
+                withTimeInterval: 1.0,
+                repeats: true
+            ) { [weak self] _ in
+                self?.updateClipboardContent()
+            }
 
-        terminationObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.willTerminateNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.flushStore()
+            terminationObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.willTerminateNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.flushStore()
+            }
         }
     }
 
@@ -123,17 +137,106 @@ final class ClipboardViewModel: ObservableObject {
     }
 
     private func updateClipboardContent() {
-        guard let content = NSPasteboard.general.string(forType: .string),
-              !content.isEmpty,
-              content != itemList.peek()?.content else {
+        let pasteboard = NSPasteboard.general
+        guard pasteboard.changeCount != lastPasteboardChangeCount else {
+            return
+        }
+        lastPasteboardChangeCount = pasteboard.changeCount
+
+        let item: Item
+        if let imageType = pasteboard.availableType(from: [.png, .tiff]),
+           let imageData = pasteboard.data(forType: imageType) {
+            let candidate = Item(content: "", type: .image, imageData: imageData)
+            if let existingItem = itemList.list.first(where: {
+                $0.hasSamePayload(as: candidate)
+            }) {
+                guard itemList.peek()?.id != existingItem.id else { return }
+                promote(existingItem)
+                return
+            }
+            item = itemList.push(imageData: imageData)
+        } else if let content = pasteboard.string(forType: .string),
+                  !content.isEmpty {
+            let type: ItemType = isWebURL(content) ? .url : .text
+            let candidate = Item(content: content, type: type)
+            if let existingItem = itemList.list.first(where: {
+                $0.hasSamePayload(as: candidate)
+            }) {
+                guard itemList.peek()?.id != existingItem.id else { return }
+                promote(existingItem)
+                return
+            }
+            item = itemList.push(content: content, type: type)
+        } else {
             return
         }
 
-        let item = itemList.push(content: content, type: .text)
         do {
             try store.append(item)
         } catch {
             print("保存剪贴板内容失败：\(error)")
+        }
+    }
+
+    func promote(_ item: Item) {
+        let matchingItems = itemList.list.filter {
+            $0.hasSamePayload(as: item)
+        }
+        guard !matchingItems.isEmpty else { return }
+
+        let promotedItem = item.promoted()
+        itemList.list.removeAll { candidate in
+            candidate.hasSamePayload(as: item)
+        }
+        itemList.list.insert(promotedItem, at: 0)
+
+        do {
+            for duplicate in matchingItems where duplicate.id != item.id {
+                try store.append(duplicate.tombstone())
+            }
+            try store.append(promotedItem)
+        } catch {
+            print("更新剪贴板条目顺序失败：\(error)")
+        }
+    }
+
+    func delete(_ item: Item) {
+        itemList.list.removeAll { $0.id == item.id }
+        do {
+            try store.append(item.tombstone())
+        } catch {
+            print("删除剪贴板条目失败：\(error)")
+        }
+    }
+
+    private func isWebURL(_ content: String) -> Bool {
+        guard let url = URL(string: content),
+              let scheme = url.scheme?.lowercased() else {
+            return false
+        }
+        return scheme == "http" || scheme == "https"
+    }
+
+    func updateContent(of item: Item, to content: String) {
+        guard item.type != .image,
+              item.type != .video,
+              item.type != .audio else {
+            return
+        }
+
+        let updatedType: ItemType
+        if item.type == .code {
+            updatedType = .code
+        } else {
+            updatedType = isWebURL(content) ? .url : .text
+        }
+        let updatedItem = item.replacingContent(content, type: updatedType)
+        itemList.replace(updatedItem)
+
+        do {
+            try store.append(updatedItem)
+        } catch {
+            print("保存条目修改失败：\(error)")
         }
     }
 

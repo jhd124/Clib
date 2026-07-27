@@ -4,6 +4,8 @@ import Carbon
 
 extension Notification.Name {
     static let clipboardPickerDidOpen = Notification.Name("clipboardPickerDidOpen")
+    static let focusClipboardSearch = Notification.Name("focusClipboardSearch")
+    static let openItemTypeFilterMenu = Notification.Name("openItemTypeFilterMenu")
 }
 
 @main
@@ -16,6 +18,25 @@ struct clibApp: App {
                 .environmentObject(appDelegate)
         }
         .windowStyle(.hiddenTitleBar)
+        .commands {
+            CommandMenu("剪贴板") {
+                Button("搜索") {
+                    NotificationCenter.default.post(
+                        name: .focusClipboardSearch,
+                        object: nil
+                    )
+                }
+                .keyboardShortcut("f", modifiers: .command)
+
+                Button("筛选类型") {
+                    NotificationCenter.default.post(
+                        name: .openItemTypeFilterMenu,
+                        object: nil
+                    )
+                }
+                .keyboardShortcut("d", modifiers: .command)
+            }
+        }
     }
 }
 
@@ -23,11 +44,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     @Published private(set) var isPinned = false
 
     private var eventMonitor: Any?
+    private var appShortcutMonitor: Any?
     private var previouslyActiveApplication: NSRunningApplication?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         checkAccessibilityPermissions()
         setupGlobalHotkeyListener()
+        setupAppShortcutListener()
         DispatchQueue.main.async { [weak self] in
             self?.configurePickerWindow()
         }
@@ -52,6 +75,34 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
     }
 
+    private func setupAppShortcutListener() {
+        appShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard NSApp.isActive else { return event }
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard modifiers.contains(.command),
+                  modifiers.intersection([.option, .control]).isEmpty else {
+                return event
+            }
+
+            switch Int(event.keyCode) {
+            case kVK_ANSI_F:
+                NotificationCenter.default.post(
+                    name: .focusClipboardSearch,
+                    object: nil
+                )
+                return nil
+            case kVK_ANSI_D:
+                NotificationCenter.default.post(
+                    name: .openItemTypeFilterMenu,
+                    object: nil
+                )
+                return nil
+            default:
+                return event
+            }
+        }
+    }
+
     private func showClipboardPicker() {
         let frontmostApplication = NSWorkspace.shared.frontmostApplication
         if frontmostApplication?.processIdentifier != ProcessInfo.processInfo.processIdentifier {
@@ -72,7 +123,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         window.titlebarSeparatorStyle = .none
         window.styleMask.insert(.fullSizeContentView)
         window.styleMask.remove(.titled)
-        window.isMovableByWindowBackground = true
+        window.isMovableByWindowBackground = false
         window.level = isPinned ? .floating : .normal
         window.isOpaque = false
         window.backgroundColor = .clear
@@ -90,10 +141,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         NSApp.windows.first?.level = isPinned ? .floating : .normal
     }
 
-    func pasteIntoPreviouslyActiveApplication(_ text: String) {
+    func pasteIntoPreviouslyActiveApplication(_ item: Item) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+
+        switch item.type {
+        case .image:
+            guard let imageData = item.imageData,
+                  let image = NSImage(data: imageData) else {
+                NSSound.beep()
+                return
+            }
+            pasteboard.writeObjects([image])
+        default:
+            pasteboard.setString(item.content, forType: .string)
+        }
 
         guard AXIsProcessTrusted(), let targetApplication = previouslyActiveApplication else {
             NSSound.beep()
@@ -126,6 +188,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     func applicationWillTerminate(_ notification: Notification) {
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
+        }
+        if let appShortcutMonitor {
+            NSEvent.removeMonitor(appShortcutMonitor)
         }
     }
 }
