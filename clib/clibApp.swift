@@ -304,40 +304,33 @@ private extension AppTheme {
     }
 }
 
-private final class ClipboardPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
-}
-
 final class ClipboardWindowController: NSWindowController {
     let contentController: ItemListViewController
 
     init(appDelegate: AppDelegate) {
         contentController = ItemListViewController(appDelegate: appDelegate)
-        contentController.preferredContentSize = NSSize(width: 520, height: 620)
-        let window = ClipboardPanel(
+        let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 620),
-            styleMask: [.titled, .fullSizeContentView, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.standardWindowButton(.closeButton)?.isHidden = true
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
+        window.title = "clib"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
         window.contentViewController = contentController
         window.isReleasedWhenClosed = false
         window.hidesOnDeactivate = false
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-        window.isMovableByWindowBackground = true
-        window.isOpaque = false
-        window.backgroundColor = .clear
+        window.isMovableByWindowBackground = false
         window.hasShadow = true
-        window.contentView?.wantsLayer = true
-        window.contentView?.layer?.cornerRadius = 16
-        window.contentView?.layer?.masksToBounds = true
         window.minSize = NSSize(width: 380, height: 300)
+        window.contentMinSize = NSSize(width: 380, height: 268)
+        window.maxSize = NSSize(width: 10_000, height: 10_000)
+        window.contentMaxSize = NSSize(width: 10_000, height: 10_000)
+        window.contentResizeIncrements = NSSize(width: 1, height: 1)
+        window.styleMask.insert(.resizable)
+        window.standardWindowButton(.zoomButton)?.isEnabled = true
         window.setContentSize(NSSize(width: 520, height: 620))
         window.center()
         super.init(window: window)
