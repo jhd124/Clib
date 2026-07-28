@@ -5,6 +5,56 @@ extension Notification.Name {
     static let clipboardPickerDidOpen = Notification.Name("clipboardPickerDidOpen")
     static let focusClipboardSearch = Notification.Name("focusClipboardSearch")
     static let openItemTypeFilterMenu = Notification.Name("openItemTypeFilterMenu")
+    static let appThemeDidChange = Notification.Name("appThemeDidChange")
+}
+
+enum AppTheme: String, CaseIterable {
+    case mistBlue, mint, sakura, lavender, amber, graphite
+
+    static let defaultsKey = "appTheme"
+
+    static var current: AppTheme {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: defaultsKey),
+                  let theme = AppTheme(rawValue: raw) else {
+                return .mistBlue
+            }
+            return theme
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: defaultsKey)
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .mistBlue: "雾霭蓝"
+        case .mint: "清新薄荷"
+        case .sakura: "柔雾樱花"
+        case .lavender: "暮光薰衣草"
+        case .amber: "暖调琥珀"
+        case .graphite: "高级石墨"
+        }
+    }
+
+    var accentColor: NSColor {
+        switch self {
+        case .mistBlue: NSColor(srgbRed: 0.28, green: 0.55, blue: 0.92, alpha: 1)
+        case .mint: NSColor(srgbRed: 0.20, green: 0.67, blue: 0.57, alpha: 1)
+        case .sakura: NSColor(srgbRed: 0.91, green: 0.45, blue: 0.60, alpha: 1)
+        case .lavender: NSColor(srgbRed: 0.55, green: 0.43, blue: 0.86, alpha: 1)
+        case .amber: NSColor(srgbRed: 0.88, green: 0.55, blue: 0.20, alpha: 1)
+        case .graphite: NSColor(srgbRed: 0.38, green: 0.43, blue: 0.50, alpha: 1)
+        }
+    }
+
+    var favoriteColor: NSColor {
+        switch self {
+        case .mint: NSColor(srgbRed: 0.12, green: 0.56, blue: 0.45, alpha: 1)
+        case .graphite: NSColor(srgbRed: 0.46, green: 0.50, blue: 0.57, alpha: 1)
+        default: accentColor
+        }
+    }
 }
 
 @main
@@ -12,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowController: ClipboardWindowController?
     private var eventMonitor: Any?
     private var statusItem: NSStatusItem?
+    private weak var themeMenu: NSMenu?
     private var previouslyActiveApplication: NSRunningApplication?
     private(set) var isPinned = false
 
@@ -41,6 +92,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let applicationItem = NSMenuItem()
         mainMenu.addItem(applicationItem)
         let applicationMenu = NSMenu()
+        let themeItem = NSMenuItem(title: "主题", action: nil, keyEquivalent: "")
+        let themes = NSMenu(title: "主题")
+        for theme in AppTheme.allCases {
+            let item = NSMenuItem(
+                title: theme.title,
+                action: #selector(selectTheme(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = theme.rawValue
+            item.image = theme.menuSwatch
+            themes.addItem(item)
+        }
+        themeItem.submenu = themes
+        themeMenu = themes
+        applicationMenu.addItem(themeItem)
+        applicationMenu.addItem(.separator())
         applicationMenu.addItem(
             withTitle: "清空剪贴板记录…",
             action: #selector(confirmClearHistory),
@@ -69,6 +137,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         clipboardItem.submenu = clipboardMenu
         NSApp.mainMenu = mainMenu
+        updateThemeMenuState()
+    }
+
+    @objc private func selectTheme(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let theme = AppTheme(rawValue: raw) else { return }
+        AppTheme.current = theme
+        updateThemeMenuState()
+        NotificationCenter.default.post(name: .appThemeDidChange, object: theme)
+    }
+
+    private func updateThemeMenuState() {
+        let selected = AppTheme.current
+        themeMenu?.items.forEach {
+            $0.state = ($0.representedObject as? String) == selected.rawValue ? .on : .off
+        }
     }
 
     @objc private func confirmClearHistory() {
@@ -79,6 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: "清空")
         alert.addButton(withTitle: "取消")
         alert.buttons.first?.hasDestructiveAction = true
+        alert.buttons[1].keyEquivalent = "\u{1b}"
 
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         windowController?.contentController.clearHistory()
@@ -204,6 +289,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+    }
+}
+
+private extension AppTheme {
+    var menuSwatch: NSImage {
+        let image = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
+            self.accentColor.setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
+            return true
+        }
+        image.isTemplate = false
+        return image
     }
 }
 

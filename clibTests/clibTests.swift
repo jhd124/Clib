@@ -228,9 +228,47 @@ final class TextTransformerTests: XCTestCase {
         XCTAssertEqual(decoded, source)
     }
 
+    func testTransformTrimsLeadingAndTrailingWhitespace() throws {
+        let encoded = try TextTransformer.transform(
+            "  clipboard value \n",
+            using: .base64Encode
+        )
+
+        XCTAssertEqual(
+            try TextTransformer.transform(encoded, using: .base64Decode),
+            "clipboard value"
+        )
+    }
+
     func testInvalidUTF8Base64Throws() {
         XCTAssertThrowsError(
             try TextTransformer.transform("////", using: .base64Decode)
+        )
+    }
+
+    func testJWTDecodeParsesHeaderPayloadAndKeepsSignature() throws {
+        let token =
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." +
+            "eyJuYW1lIjoi5byg5LiJIiwic3ViIjoiMTIzIn0." +
+            "signature"
+
+        let result = try TextTransformer.transform(token, using: .jwtDecode)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String: Any]
+        )
+        let header = try XCTUnwrap(object["header"] as? [String: Any])
+        let payload = try XCTUnwrap(object["payload"] as? [String: Any])
+
+        XCTAssertEqual(header["alg"] as? String, "HS256")
+        XCTAssertEqual(payload["sub"] as? String, "123")
+        XCTAssertEqual(payload["name"] as? String, "张三")
+        XCTAssertEqual(object["signature"] as? String, "signature")
+        XCTAssertEqual(object["signatureVerified"] as? Bool, false)
+    }
+
+    func testInvalidJWTThrows() {
+        XCTAssertThrowsError(
+            try TextTransformer.transform("not-a-jwt", using: .jwtDecode)
         )
     }
 

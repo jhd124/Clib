@@ -193,10 +193,13 @@ private final class ImageItemCellView: NSView {
 private final class TagBadgeView: NSView {
     init(tag: String) {
         let title = tag
+        let theme = AppTheme.current
         super.init(frame: .zero)
         let font = NSFont.systemFont(ofSize: 10.5, weight: .medium)
         let label = NSTextField(labelWithString: title)
-        label.textColor = tag == Item.favoriteTag ? .systemOrange : .controlAccentColor
+        label.textColor = tag == Item.favoriteTag
+            ? theme.favoriteColor
+            : theme.accentColor
         label.font = font
         label.alignment = .center
         label.lineBreakMode = .byTruncatingTail
@@ -208,8 +211,8 @@ private final class TagBadgeView: NSView {
         wantsLayer = true
         layer?.backgroundColor = (
             tag == Item.favoriteTag
-                ? NSColor.systemYellow.withAlphaComponent(0.18)
-                : NSColor.controlAccentColor.withAlphaComponent(0.12)
+                ? theme.favoriteColor.withAlphaComponent(0.16)
+                : theme.accentColor.withAlphaComponent(0.12)
         ).cgColor
         layer?.cornerRadius = 5
         layer?.masksToBounds = true
@@ -242,8 +245,8 @@ private final class GlassListScrollView: NSScrollView {
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        layer?.backgroundColor = NSColor.controlBackgroundColor
-            .withAlphaComponent(0.5)
+        layer?.backgroundColor = AppTheme.current.accentColor
+            .withAlphaComponent(0.025)
             .cgColor
     }
 }
@@ -280,7 +283,7 @@ final class ItemListViewController: NSViewController,
             let glass = NSGlassEffectView()
             glass.style = .regular
             glass.cornerRadius = 16
-            glass.tintColor = NSColor.controlAccentColor.withAlphaComponent(0.035)
+            glass.tintColor = AppTheme.current.accentColor.withAlphaComponent(0.055)
 
             let host = NSView(frame: glass.bounds)
             host.autoresizingMask = [.width, .height]
@@ -306,6 +309,7 @@ final class ItemListViewController: NSViewController,
             DispatchQueue.main.async { self?.reloadItems(selectFirst: false) }
         }
         reloadItems(selectFirst: true)
+        applyTheme()
     }
 
     override func viewDidAppear() {
@@ -434,6 +438,11 @@ final class ItemListViewController: NSViewController,
             self?.reloadItems(selectFirst: true)
             self?.focusList()
         })
+        observers.append(center.addObserver(
+            forName: .appThemeDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.applyTheme()
+        })
     }
 
     deinit {
@@ -446,7 +455,26 @@ final class ItemListViewController: NSViewController,
             systemSymbolName: pinned ? "pin.fill" : "pin",
             accessibilityDescription: pinned ? "取消置顶" : "始终置顶"
         )
-        pinButton.contentTintColor = pinned ? .controlAccentColor : .secondaryLabelColor
+        pinButton.contentTintColor = pinned
+            ? AppTheme.current.accentColor
+            : .secondaryLabelColor
+    }
+
+    private func applyTheme() {
+        let theme = AppTheme.current
+        if #available(macOS 26.0, *), let glass = view as? NSGlassEffectView {
+            glass.tintColor = theme.accentColor.withAlphaComponent(0.055)
+        } else {
+            view.layer?.backgroundColor = theme.accentColor
+                .withAlphaComponent(0.045)
+                .cgColor
+        }
+        if appDelegate.isPinned {
+            pinButton.contentTintColor = theme.accentColor
+        }
+        scrollView.needsDisplay = true
+        scrollView.needsLayout = true
+        tableView.reloadData()
     }
 
     func clearHistory() {
@@ -779,6 +807,7 @@ final class ItemListViewController: NSViewController,
         alert.accessoryView = input
         alert.addButton(withTitle: "添加")
         alert.addButton(withTitle: "取消")
+        alert.buttons[1].keyEquivalent = "\u{1b}"
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let tag = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !tag.isEmpty, tag != Item.favoriteTag else { return }
@@ -790,11 +819,12 @@ final class ItemListViewController: NSViewController,
 }
 
 enum TextTransform: String, CaseIterable {
-    case base64Encode, base64Decode, formatJSON, compressJSON, parseURL
+    case base64Encode, base64Decode, jwtDecode, formatJSON, compressJSON, parseURL
     var title: String {
         switch self {
         case .base64Encode: "Base64 Encode"
         case .base64Decode: "Base64 Decode"
+        case .jwtDecode: "JWT Decode"
         case .formatJSON: "Format JSON"
         case .compressJSON: "Compress JSON"
         case .parseURL: "递归解析 URL 参数"
@@ -804,7 +834,16 @@ enum TextTransform: String, CaseIterable {
 
 enum TextTransformError: LocalizedError {
     case invalidBase64
-    var errorDescription: String? { "内容不是有效的 UTF-8 Base64 字符串" }
+    case invalidJWT
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidBase64:
+            "内容不是有效的 UTF-8 Base64 字符串"
+        case .invalidJWT:
+            "内容不是有效的 JWT（仅解码，不验证签名）"
+        }
+    }
 }
 
 struct SearchDestinationResolver {
@@ -821,11 +860,14 @@ struct SearchDestinationResolver {
 
 struct TextTransformer {
     static func transform(_ source: String, using transform: TextTransform) throws -> String {
-        switch transform {
+        let source = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        return switch transform {
         case .base64Encode:
             Data(source.utf8).base64EncodedString()
         case .base64Decode:
             try decodeBase64(source)
+        case .jwtDecode:
+            try decodeJWT(source)
         case .formatJSON:
             try jsonString(source, pretty: true)
         case .compressJSON:
@@ -841,6 +883,38 @@ struct TextTransformer {
             throw TextTransformError.invalidBase64
         }
         return value
+    }
+
+    private static func decodeJWT(_ source: String) throws -> String {
+        let segments = source.split(separator: ".", omittingEmptySubsequences: false)
+        guard segments.count == 3,
+              let header = try decodeJWTSegment(String(segments[0])),
+              let payload = try decodeJWTSegment(String(segments[1])) else {
+            throw TextTransformError.invalidJWT
+        }
+        return try serialize(
+            [
+                "header": header,
+                "payload": payload,
+                "signature": String(segments[2]),
+                "signatureVerified": false
+            ],
+            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        )
+    }
+
+    private static func decodeJWTSegment(_ segment: String) throws -> Any? {
+        var base64 = segment
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = base64.count % 4
+        if remainder != 0 {
+            base64.append(String(repeating: "=", count: 4 - remainder))
+        }
+        guard let data = Data(base64Encoded: base64) else {
+            throw TextTransformError.invalidJWT
+        }
+        return try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)
     }
 
     private static func jsonString(_ source: String, pretty: Bool) throws -> String {
@@ -893,16 +967,20 @@ struct TextTransformer {
 private final class TransformViewController: NSViewController {
     private let item: Item
     private let popup = NSPopUpButton()
-    private let sourceView = NSTextView()
     private let resultView = NSTextView()
     private let errorLabel = NSTextField(labelWithString: "")
+    private var tabKeyMonitor: Any?
 
     init(item: Item) {
         self.item = item
         super.init(nibName: nil, bundle: nil)
-        preferredContentSize = NSSize(width: 620, height: 460)
+        preferredContentSize = NSSize(width: 620, height: 380)
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        removeTabKeyMonitor()
+    }
 
     override func loadView() {
         view = NSView()
@@ -910,9 +988,8 @@ private final class TransformViewController: NSViewController {
         popup.selectItem(at: 1)
         popup.target = self
         popup.action = #selector(run)
-        sourceView.string = item.content
-        sourceView.isEditable = false
         resultView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        resultView.isEditable = false
         errorLabel.textColor = .systemRed
 
         let runButton = NSButton(title: "执行", target: self, action: #selector(run))
@@ -923,7 +1000,7 @@ private final class TransformViewController: NSViewController {
         let buttons = NSStackView(views: [closeButton, copyButton])
         buttons.orientation = .horizontal
         let stack = NSStackView(views: [
-            top, scroll(sourceView), scroll(resultView), errorLabel, buttons
+            top, scroll(resultView), errorLabel, buttons
         ])
         stack.orientation = .vertical
         stack.spacing = 10
@@ -934,20 +1011,57 @@ private final class TransformViewController: NSViewController {
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -16),
-            sourceView.heightAnchor.constraint(greaterThanOrEqualToConstant: 80),
-            resultView.heightAnchor.constraint(greaterThanOrEqualToConstant: 150)
+            resultView.heightAnchor.constraint(greaterThanOrEqualToConstant: 230)
         ])
         run()
     }
 
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        installTabKeyMonitor()
+    }
+
+    override func viewWillDisappear() {
+        removeTabKeyMonitor()
+        super.viewWillDisappear()
+    }
+
+    private func installTabKeyMonitor() {
+        removeTabKeyMonitor()
+        tabKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+            [weak self] event in
+            guard let self,
+                  view.window?.isKeyWindow == true,
+                  event.modifierFlags.intersection([.command, .control, .option]).isEmpty else {
+                return event
+            }
+            if event.keyCode == kVK_Escape {
+                close()
+                return nil
+            }
+            guard event.keyCode == kVK_Tab else { return event }
+            DispatchQueue.main.async { [weak self] in
+                self?.popup.performClick(nil)
+            }
+            return nil
+        }
+    }
+
+    private func removeTabKeyMonitor() {
+        guard let tabKeyMonitor else { return }
+        NSEvent.removeMonitor(tabKeyMonitor)
+        self.tabKeyMonitor = nil
+    }
+
     @objc private func run() {
         do {
-            resultView.string = try TextTransformer.transform(
+            let result = try TextTransformer.transform(
                 item.content, using: TextTransform.allCases[popup.indexOfSelectedItem]
             )
+            resultView.string = result.isEmpty ? item.content : result
             errorLabel.stringValue = ""
         } catch {
-            resultView.string = ""
+            resultView.string = item.content
             errorLabel.stringValue = error.localizedDescription
         }
     }
@@ -958,10 +1072,33 @@ private final class TransformViewController: NSViewController {
     @objc private func close() { dismiss(nil) }
 }
 
+private final class EditTextView: NSTextView {
+    var onSave: (() -> Void)?
+    var onCancel: (() -> Void)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if modifiers == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "s" {
+            onSave?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == kVK_Escape {
+            onCancel?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+}
+
 private final class EditItemViewController: NSViewController {
     private let item: Item
     private let onSave: (String) -> Void
-    private let textView = NSTextView()
+    private let textView = EditTextView()
     init(item: Item, onSave: @escaping (String) -> Void) {
         self.item = item
         self.onSave = onSave
@@ -975,7 +1112,11 @@ private final class EditItemViewController: NSViewController {
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         let cancel = NSButton(title: "取消", target: self, action: #selector(close))
         let save = NSButton(title: "保存", target: self, action: #selector(save))
-        save.keyEquivalent = "\r"
+        save.keyEquivalent = "s"
+        save.keyEquivalentModifierMask = .command
+        cancel.keyEquivalent = "\u{1b}"
+        textView.onSave = { [weak self] in self?.save() }
+        textView.onCancel = { [weak self] in self?.close() }
         let buttons = NSStackView(views: [cancel, save])
         buttons.orientation = .horizontal
         let stack = NSStackView(views: [scroll(textView), buttons])
