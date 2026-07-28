@@ -33,6 +33,14 @@ final class ItemListTests: XCTestCase {
         XCTAssertTrue(first.hasSamePayload(as: same))
         XCTAssertFalse(first.hasSamePayload(as: different))
     }
+
+    func testTagsAreNormalizedAndCanBeToggled() {
+        let item = Item(content: "tagged", type: .text, tags: [" 工作 ", "工作", ""])
+
+        XCTAssertEqual(item.tags, ["工作"])
+        XCTAssertEqual(item.togglingTag("工作").tags, [])
+        XCTAssertEqual(item.togglingTag("收藏").tags, ["工作", "收藏"])
+    }
 }
 
 final class LocalClipboardHistoryStoreTests: XCTestCase {
@@ -110,6 +118,19 @@ final class LocalClipboardHistoryStoreTests: XCTestCase {
 
         XCTAssertEqual(try store.load().map(\.id), [valid.id])
     }
+
+    func testDecodesHistoryCreatedBeforeTagsWereAdded() throws {
+        let json = """
+        {"id":"00000000-0000-0000-0000-000000000001","content":"legacy","type":"text","createdAt":"1970-01-01T00:00:10Z"}
+        """
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        try Data((json + "\n").utf8).write(to: historyURL)
+
+        XCTAssertEqual(try LocalClipboardHistoryStore(fileURL: historyURL).load().first?.tags, [])
+    }
 }
 
 final class ClipboardViewModelTests: XCTestCase {
@@ -170,6 +191,17 @@ final class ClipboardViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.itemList.list[0].type, .image)
         XCTAssertTrue(store.appendedItems.isEmpty)
+    }
+
+    func testToggleTagUpdatesAndPersistsItem() {
+        let item = Item(content: "tag me", type: .text)
+        let store = MemoryClipboardHistoryStore(initialItems: [item])
+        let viewModel = ClipboardViewModel(store: store, startMonitoring: false)
+
+        viewModel.toggleTag("工作", on: item)
+
+        XCTAssertEqual(viewModel.itemList.list[0].tags, ["工作"])
+        XCTAssertEqual(store.appendedItems.last?.tags, ["工作"])
     }
 }
 

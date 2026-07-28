@@ -1,16 +1,8 @@
-import SwiftUI
+import AppKit
 import Carbon
 
-private enum ItemTypeFilter: String, CaseIterable, Identifiable {
-    case all
-    case text
-    case image
-    case url
-    case code
-    case video
-    case audio
-
-    var id: Self { self }
+private enum ItemTypeFilter: String, CaseIterable {
+    case all, text, image, url, code, video, audio
 
     var title: String {
         switch self {
@@ -25,797 +17,758 @@ private enum ItemTypeFilter: String, CaseIterable, Identifiable {
     }
 
     func includes(_ item: Item) -> Bool {
-        switch self {
-        case .all: true
-        case .text: item.type == .text
-        case .image: item.type == .image
-        case .url: item.type == .url
-        case .code: item.type == .code
-        case .video: item.type == .video
-        case .audio: item.type == .audio
-        }
+        self == .all || item.type.rawValue == rawValue
     }
 }
 
-private enum ContextAction: Hashable {
-    case search
-    case transform
-    case edit
-    case delete
+private enum ItemFilter: Equatable {
+    case type(ItemTypeFilter)
+    case tag(String)
 }
 
-private enum TopControl: Hashable {
-    case search
+private final class ClipboardTableView: NSTableView {
+    var handleKey: ((NSEvent) -> Bool)?
+
+    override func keyDown(with event: NSEvent) {
+        if handleKey?(event) == true { return }
+        super.keyDown(with: event)
+    }
 }
 
-struct ItemListView: View {
-    @StateObject private var viewModel = ClipboardViewModel()
-    @EnvironmentObject private var appDelegate: AppDelegate
-    @State private var selectedItemID: Item.ID?
-    @State private var searchText = ""
-    @State private var typeFilter: ItemTypeFilter = .all
-    @State private var contextMenuItemID: Item.ID?
-    @State private var transformingItem: Item?
-    @State private var editingItem: Item?
-    @State private var focusedContextAction: ContextAction?
-    @State private var contextKeyMonitor: Any?
-    @State private var listKeyMonitor: Any?
-    @FocusState private var isListFocused: Bool
-    @FocusState private var focusedTopControl: TopControl?
+private final class ClipboardSearchField: NSSearchField {
+    var onEscape: (() -> Void)?
 
-    var body: some View {
-        ScrollViewReader { proxy in
-            VStack(spacing: 0) {
-                HStack(spacing: 6) {
-                    WindowDragHandle()
-                        .frame(width: 22, height: 22)
-                        .background {
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(Color.secondary.opacity(0.12))
-                        }
-                        .overlay {
-                            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .allowsHitTesting(false)
-                        }
-                        .help("拖动窗口")
+    override func cancelOperation(_ sender: Any?) {
+        onEscape?()
+    }
+}
 
-                    TextField("搜索剪贴板", text: $searchText)
-                        .textFieldStyle(.roundedBorder)
-                        .controlSize(.small)
-                        .focused($focusedTopControl, equals: .search)
+private final class WindowDragHandleView: NSView {
+    private let imageView = NSImageView()
 
-                    ItemTypeFilterMenu(selection: $typeFilter)
-                        .frame(width: 76, height: 22)
-                    .fixedSize()
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 7
 
-                    Button {
-                        appDelegate.togglePin()
-                    } label: {
-                        Image(systemName: appDelegate.isPinned ? "pin.fill" : "pin")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(appDelegate.isPinned ? Color.accentColor : .secondary)
-                            .frame(width: 22, height: 22)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(appDelegate.isPinned ? "取消置顶" : "始终置顶")
-                    .onHover { isHovering in
-                        if isHovering {
-                            NSCursor.pointingHand.push()
-                        } else {
-                            NSCursor.pop()
-                        }
-                    }
-                }
-                .padding(.horizontal, 6)
-                .frame(height: 30)
-                .background(Color.clear)
-
-                Divider()
-
-                List(selectableItems) { item in
-                    itemContent(item)
-                        .padding(.vertical, 8)
-                        .id(item.id)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if selectedItemID == item.id {
-                                paste(item)
-                            } else {
-                                selectedItemID = item.id
-                            }
-                        }
-                        .contextMenu {
-                            contextMenuButtons(for: item)
-                        }
-                        .popover(
-                            isPresented: Binding(
-                                get: { contextMenuItemID == item.id },
-                                set: {
-                                    if !$0 {
-                                        focusedContextAction = nil
-                                        contextMenuItemID = nil
-                                    }
-                                }
-                            ),
-                            arrowEdge: .trailing
-                        ) {
-                            keyboardContextMenu(for: item)
-                        }
-                        .listRowBackground(
-                            selectedItemID == item.id
-                                ? Color.accentColor.opacity(0.22)
-                                : Color.clear
-                        )
-                }
-                .scrollContentBackground(.hidden)
-                .focused($isListFocused)
-                .onKeyPress(.upArrow) {
-                    moveSelection(by: -1, proxy: proxy)
-                    return .handled
-                }
-                .onKeyPress(.downArrow) {
-                    moveSelection(by: 1, proxy: proxy)
-                    return .handled
-                }
-                .onKeyPress(.return) {
-                    pasteSelectedItem()
-                    return .handled
-                }
-                .onKeyPress(.rightArrow) {
-                    if contextMenuItemID == nil {
-                        showContextMenuForSelectedItem()
-                    } else {
-                        focusFirstContextAction()
-                    }
-                    return .handled
-                }
-                .onKeyPress(.leftArrow) {
-                    guard contextMenuItemID != nil else { return .ignored }
-                    contextMenuItemID = nil
-                    return .handled
-                }
-                .onKeyPress(.escape) {
-                    NSApp.hide(nil)
-                    return .handled
-                }
-                .onAppear {
-                    selectFirstItem()
-                    startListKeyMonitor(proxy: proxy)
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .clipboardPickerDidOpen)) { _ in
-                    selectFirstItem()
-                }
-                .onChange(of: viewModel.itemList.list) {
-                    guard let firstItem = selectableItems.first else { return }
-                    if selectedItemID == nil {
-                        selectedItemID = firstItem.id
-                    }
-                    withAnimation {
-                        proxy.scrollTo(firstItem.id, anchor: .top)
-                    }
-                }
-                .onChange(of: searchText) {
-                    selectFirstFilteredItem(proxy: proxy)
-                }
-                .onChange(of: typeFilter) {
-                    selectFirstFilteredItem(proxy: proxy)
-                }
-            }
-            .background {
-                windowBackground
-            }
-            .sheet(item: $transformingItem, onDismiss: restoreListFocus) { item in
-                TextTransformSheet(item: item)
-            }
-            .sheet(item: $editingItem, onDismiss: restoreListFocus) { item in
-                EditItemSheet(item: item) { content in
-                    viewModel.updateContent(of: item, to: content)
-                }
-            }
-            .onChange(of: contextMenuItemID) {
-                if contextMenuItemID == nil {
-                    stopContextKeyMonitor()
-                } else {
-                    startContextKeyMonitor()
-                }
-            }
-            .onDisappear {
-                stopContextKeyMonitor()
-                stopListKeyMonitor()
-            }
-            .onReceive(
-                NotificationCenter.default.publisher(
-                    for: NSMenu.didEndTrackingNotification
-                )
-            ) { _ in
-                restoreListFocus()
-            }
-            .onReceive(
-                NotificationCenter.default.publisher(
-                    for: NSApplication.didBecomeActiveNotification
-                )
-            ) { _ in
-                restoreListFocus()
-            }
-            .onReceive(
-                NotificationCenter.default.publisher(
-                    for: .focusClipboardSearch
-                )
-            ) { _ in
-                focusSearchField()
-            }
-        }
+        imageView.image = NSImage(
+            systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right",
+            accessibilityDescription: "拖动窗口"
+        )
+        imageView.contentTintColor = .secondaryLabelColor
+        imageView.symbolConfiguration = NSImage.SymbolConfiguration(
+            pointSize: 10,
+            weight: .semibold
+        )
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(imageView)
+        NSLayoutConstraint.activate([
+            imageView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
     }
 
-    @ViewBuilder
-    private var windowBackground: some View {
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        layer?.backgroundColor = NSColor.separatorColor
+            .withAlphaComponent(0.16)
+            .cgColor
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        NSCursor.closedHand.push()
+        defer { NSCursor.pop() }
+        window?.performDrag(with: event)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .openHand)
+    }
+}
+
+private final class TextItemCellView: NSView {
+    let textField = NSTextField(wrappingLabelWithString: "")
+    private let tagStack = NSStackView()
+    private var tagHeightConstraint: NSLayoutConstraint!
+    private var tagSpacingConstraint: NSLayoutConstraint!
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        textField.maximumNumberOfLines = 7
+        textField.lineBreakMode = .byTruncatingTail
+        textField.cell?.wraps = true
+        textField.cell?.truncatesLastVisibleLine = true
+        textField.font = .systemFont(ofSize: 13.5)
+        textField.textColor = .labelColor
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        tagStack.orientation = .horizontal
+        tagStack.alignment = .centerY
+        tagStack.spacing = 5
+        tagStack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(textField)
+        addSubview(tagStack)
+        tagHeightConstraint = tagStack.heightAnchor.constraint(equalToConstant: 0)
+        tagSpacingConstraint = tagStack.topAnchor.constraint(equalTo: textField.bottomAnchor)
+        NSLayoutConstraint.activate([
+            textField.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            textField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            tagSpacingConstraint,
+            tagStack.leadingAnchor.constraint(equalTo: textField.leadingAnchor),
+            tagStack.trailingAnchor.constraint(lessThanOrEqualTo: textField.trailingAnchor),
+            tagHeightConstraint,
+            tagStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -9)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configureTags(_ tags: [String]) {
+        tagStack.arrangedSubviews.forEach {
+            tagStack.removeArrangedSubview($0)
+            $0.removeFromSuperview()
+        }
+        tags.forEach { tagStack.addArrangedSubview(TagBadgeView(tag: $0)) }
+        tagStack.isHidden = tags.isEmpty
+        tagHeightConstraint.constant = tags.isEmpty ? 0 : 20
+        tagSpacingConstraint.constant = tags.isEmpty ? 0 : 6
+    }
+}
+
+private final class ImageItemCellView: NSView {
+    let imageView = NSImageView()
+    private let tagStack = NSStackView()
+    private var tagHeightConstraint: NSLayoutConstraint!
+    private var tagSpacingConstraint: NSLayoutConstraint!
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        imageView.imageScaling = .scaleProportionallyDown
+        imageView.imageAlignment = .alignLeft
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        tagStack.orientation = .horizontal
+        tagStack.alignment = .centerY
+        tagStack.spacing = 5
+        tagStack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(imageView)
+        addSubview(tagStack)
+        tagHeightConstraint = tagStack.heightAnchor.constraint(equalToConstant: 0)
+        tagSpacingConstraint = tagStack.topAnchor.constraint(equalTo: imageView.bottomAnchor)
+        NSLayoutConstraint.activate([
+            imageView.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            imageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            imageView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            tagSpacingConstraint,
+            tagStack.leadingAnchor.constraint(equalTo: imageView.leadingAnchor),
+            tagStack.trailingAnchor.constraint(lessThanOrEqualTo: imageView.trailingAnchor),
+            tagHeightConstraint,
+            tagStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -9)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configureTags(_ tags: [String]) {
+        tagStack.arrangedSubviews.forEach {
+            tagStack.removeArrangedSubview($0)
+            $0.removeFromSuperview()
+        }
+        tags.forEach { tagStack.addArrangedSubview(TagBadgeView(tag: $0)) }
+        tagStack.isHidden = tags.isEmpty
+        tagHeightConstraint.constant = tags.isEmpty ? 0 : 20
+        tagSpacingConstraint.constant = tags.isEmpty ? 0 : 6
+    }
+}
+
+private final class TagBadgeView: NSTextField {
+    init(tag: String) {
+        let title = tag == Item.favoriteTag ? "★ 收藏" : tag
+        super.init(frame: .zero)
+        stringValue = title
+        isEditable = false
+        isSelectable = false
+        isBezeled = false
+        drawsBackground = true
+        backgroundColor = tag == Item.favoriteTag
+            ? NSColor.systemYellow.withAlphaComponent(0.18)
+            : NSColor.controlAccentColor.withAlphaComponent(0.12)
+        textColor = tag == Item.favoriteTag ? .systemOrange : .controlAccentColor
+        font = .systemFont(ofSize: 10.5, weight: .medium)
+        alignment = .center
+        lineBreakMode = .byTruncatingTail
+        maximumNumberOfLines = 1
+        cell?.usesSingleLineMode = true
+        wantsLayer = true
+        layer?.cornerRadius = 5
+        layer?.masksToBounds = true
+        translatesAutoresizingMaskIntoConstraints = false
+        let width = min(max((title as NSString).size(withAttributes: [.font: font!]).width + 14, 36), 120)
+        widthAnchor.constraint(equalToConstant: ceil(width)).isActive = true
+        heightAnchor.constraint(equalToConstant: 20).isActive = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+private final class GlassListScrollView: NSScrollView {
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        layer?.backgroundColor = NSColor.controlBackgroundColor
+            .withAlphaComponent(0.5)
+            .cgColor
+    }
+}
+
+final class ItemListViewController: NSViewController,
+    NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSMenuDelegate {
+    private let viewModel = ClipboardViewModel()
+    private unowned let appDelegate: AppDelegate
+    private let dragHandle = WindowDragHandleView()
+    private let searchField = ClipboardSearchField()
+    private let filterButton = NSPopUpButton()
+    private let pinButton = NSButton()
+    private let tableView = ClipboardTableView()
+    private let scrollView = GlassListScrollView()
+    private let emptyLabel = NSTextField(labelWithString: "暂无剪贴板记录")
+    private var contentHost: NSView!
+    private var displayedItems: [Item] = []
+    private var filter: ItemFilter = .type(.all)
+    private var observers: [NSObjectProtocol] = []
+    private var lastMeasuredTableWidth: CGFloat = 0
+    private var contextMenuCloseMonitor: Any?
+
+    init(appDelegate: AppDelegate) {
+        self.appDelegate = appDelegate
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
         if #available(macOS 26.0, *) {
-            Color.clear
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 10))
-                .opacity(0.86)
+            let glass = NSGlassEffectView()
+            glass.style = .regular
+            glass.cornerRadius = 16
+            glass.tintColor = NSColor.controlAccentColor.withAlphaComponent(0.035)
+
+            let host = NSView(frame: glass.bounds)
+            host.autoresizingMask = [.width, .height]
+            glass.contentView = host
+            contentHost = host
+            view = glass
         } else {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(.ultraThinMaterial)
-                .opacity(0.86)
+            let effect = NSVisualEffectView()
+            effect.material = .popover
+            effect.blendingMode = .behindWindow
+            effect.state = .active
+            effect.wantsLayer = true
+            effect.layer?.cornerRadius = 16
+            effect.layer?.masksToBounds = true
+            contentHost = effect
+            view = effect
+        }
+        configureToolbar()
+        configureTable()
+        installConstraints()
+        installObservers()
+        viewModel.onChange = { [weak self] _ in
+            DispatchQueue.main.async { self?.reloadItems(selectFirst: false) }
+        }
+        reloadItems(selectFirst: true)
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        updateRowHeightsIfNeeded()
+        focusList()
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        updateRowHeightsIfNeeded()
+    }
+
+    private func configureToolbar() {
+        searchField.placeholderString = "搜索剪贴板"
+        searchField.controlSize = .regular
+        searchField.delegate = self
+        searchField.target = self
+        searchField.action = #selector(searchChanged)
+        searchField.onEscape = { [weak self] in
+            self?.focusList()
+        }
+
+        filterButton.controlSize = .regular
+        rebuildFilterMenu()
+        filterButton.target = self
+        filterButton.action = #selector(filterChanged)
+
+        pinButton.bezelStyle = .inline
+        pinButton.isBordered = false
+        pinButton.contentTintColor = .secondaryLabelColor
+        pinButton.image = NSImage(systemSymbolName: "pin", accessibilityDescription: "始终置顶")
+        pinButton.target = appDelegate
+        pinButton.action = #selector(AppDelegate.togglePin)
+
+        [dragHandle, searchField, filterButton, pinButton].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            contentHost.addSubview($0)
         }
     }
 
-    private var selectableItems: [Item] {
-        viewModel.itemList.list.filter {
-            let hasDisplayableContent = !$0.content.isEmpty || $0.imageData != nil
-            let matchesType = typeFilter.includes($0)
-            let matchesSearch = searchText.isEmpty ||
-                $0.content.localizedCaseInsensitiveContains(searchText)
-            return hasDisplayableContent && matchesType && matchesSearch
+    private func configureTable() {
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("item"))
+        column.resizingMask = .autoresizingMask
+        tableView.addTableColumn(column)
+        tableView.headerView = nil
+        tableView.rowHeight = 54
+        tableView.intercellSpacing = NSSize(width: 0, height: 4)
+        tableView.selectionHighlightStyle = .regular
+        tableView.backgroundColor = .clear
+        tableView.gridStyleMask = [.solidHorizontalGridLineMask]
+        tableView.gridColor = NSColor.separatorColor.withAlphaComponent(0.2)
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.target = self
+        tableView.doubleAction = #selector(pasteSelected)
+        tableView.menu = makeContextMenu()
+        tableView.handleKey = { [weak self] event in
+            self?.handleTableKey(event) ?? false
+        }
+
+        scrollView.documentView = tableView
+        scrollView.hasVerticalScroller = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        scrollView.wantsLayer = true
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        contentHost.addSubview(scrollView)
+
+        emptyLabel.textColor = .secondaryLabelColor
+        emptyLabel.alignment = .center
+        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
+        contentHost.addSubview(emptyLabel)
+    }
+
+    private func installConstraints() {
+        NSLayoutConstraint.activate([
+            dragHandle.topAnchor.constraint(equalTo: contentHost.topAnchor, constant: 10),
+            dragHandle.leadingAnchor.constraint(equalTo: contentHost.leadingAnchor, constant: 12),
+            dragHandle.widthAnchor.constraint(equalToConstant: 28),
+            dragHandle.heightAnchor.constraint(equalToConstant: 28),
+            searchField.leadingAnchor.constraint(equalTo: dragHandle.trailingAnchor, constant: 8),
+            searchField.heightAnchor.constraint(equalToConstant: 28),
+            searchField.centerYAnchor.constraint(equalTo: dragHandle.centerYAnchor),
+            filterButton.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 8),
+            filterButton.widthAnchor.constraint(equalToConstant: 94),
+            pinButton.leadingAnchor.constraint(equalTo: filterButton.trailingAnchor, constant: 6),
+            pinButton.trailingAnchor.constraint(equalTo: contentHost.trailingAnchor, constant: -12),
+            pinButton.widthAnchor.constraint(equalToConstant: 26),
+            searchField.centerYAnchor.constraint(equalTo: filterButton.centerYAnchor),
+            pinButton.centerYAnchor.constraint(equalTo: filterButton.centerYAnchor),
+            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 10),
+            scrollView.leadingAnchor.constraint(equalTo: contentHost.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: contentHost.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: contentHost.bottomAnchor),
+            emptyLabel.centerXAnchor.constraint(equalTo: scrollView.centerXAnchor),
+            emptyLabel.centerYAnchor.constraint(equalTo: scrollView.centerYAnchor)
+        ])
+    }
+
+    private func installObservers() {
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(
+            forName: .focusClipboardSearch, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            view.window?.makeFirstResponder(searchField)
+        })
+        observers.append(center.addObserver(
+            forName: .openItemTypeFilterMenu, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.rebuildFilterMenu()
+            self?.filterButton.performClick(nil)
+        })
+        observers.append(center.addObserver(
+            forName: NSPopUpButton.willPopUpNotification,
+            object: filterButton,
+            queue: .main
+        ) { [weak self] _ in
+            self?.rebuildFilterMenu()
+        })
+        observers.append(center.addObserver(
+            forName: .clipboardPickerDidOpen, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.reloadItems(selectFirst: true)
+            self?.focusList()
+        })
+    }
+
+    deinit {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        stopContextMenuCloseMonitor()
+    }
+
+    func updatePinState(_ pinned: Bool) {
+        pinButton.image = NSImage(
+            systemSymbolName: pinned ? "pin.fill" : "pin",
+            accessibilityDescription: pinned ? "取消置顶" : "始终置顶"
+        )
+        pinButton.contentTintColor = pinned ? .controlAccentColor : .secondaryLabelColor
+    }
+
+    private func focusList() {
+        view.window?.makeFirstResponder(tableView)
+    }
+
+    private func updateRowHeightsIfNeeded() {
+        let width = tableView.bounds.width
+        guard width > 0, abs(width - lastMeasuredTableWidth) > 0.5 else {
+            return
+        }
+        lastMeasuredTableWidth = width
+        guard !displayedItems.isEmpty else { return }
+        tableView.noteHeightOfRows(
+            withIndexesChanged: IndexSet(integersIn: displayedItems.indices)
+        )
+    }
+
+    @objc private func searchChanged() {
+        reloadItems(selectFirst: true)
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        reloadItems(selectFirst: true)
+    }
+
+    func control(
+        _ control: NSControl,
+        textView: NSTextView,
+        doCommandBy commandSelector: Selector
+    ) -> Bool {
+        guard control === searchField,
+              commandSelector == #selector(NSResponder.cancelOperation(_:)) else {
+            return false
+        }
+        focusList()
+        return true
+    }
+
+    @objc private func filterChanged() {
+        guard let value = filterButton.selectedItem?.representedObject as? String else { return }
+        if value.hasPrefix("type:"),
+           let selected = ItemTypeFilter(rawValue: String(value.dropFirst(5))) {
+            filter = .type(selected)
+        } else if value.hasPrefix("tag:") {
+            filter = .tag(String(value.dropFirst(4)))
+        }
+        reloadItems(selectFirst: true)
+    }
+
+    private func reloadItems(selectFirst: Bool) {
+        rebuildFilterMenu()
+        let query = searchField.stringValue
+        displayedItems = viewModel.itemList.list.filter {
+            (!$0.content.isEmpty || $0.imageData != nil) &&
+            includesInCurrentFilter($0) &&
+            (query.isEmpty || $0.content.localizedCaseInsensitiveContains(query))
+        }
+        tableView.reloadData()
+        emptyLabel.isHidden = !displayedItems.isEmpty
+        if selectFirst && !displayedItems.isEmpty {
+            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            tableView.scrollRowToVisible(0)
         }
     }
 
-    @ViewBuilder
-    private func itemContent(_ item: Item) -> some View {
-        if item.type == .image,
-           let imageData = item.imageData,
-           let image = NSImage(data: imageData) {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
-                .frame(maxWidth: .infinity, maxHeight: 220, alignment: .leading)
-                .accessibilityLabel("剪贴板图片")
+    private func includesInCurrentFilter(_ item: Item) -> Bool {
+        switch filter {
+        case .type(let type): type.includes(item)
+        case .tag(let tag): item.tags.contains(tag)
+        }
+    }
+
+    private func rebuildFilterMenu() {
+        let selectedValue: String
+        switch filter {
+        case .type(let type): selectedValue = "type:\(type.rawValue)"
+        case .tag(let tag): selectedValue = "tag:\(tag)"
+        }
+
+        filterButton.removeAllItems()
+        for value in ItemTypeFilter.allCases {
+            filterButton.addItem(withTitle: value.title)
+            filterButton.lastItem?.representedObject = "type:\(value.rawValue)"
+        }
+
+        let tags = Set(viewModel.itemList.list.flatMap(\.tags)).sorted {
+            if $0 == Item.favoriteTag { return true }
+            if $1 == Item.favoriteTag { return false }
+            return $0.localizedStandardCompare($1) == .orderedAscending
+        }
+        if !tags.isEmpty {
+            filterButton.menu?.addItem(.separator())
+            for tag in tags {
+                filterButton.addItem(withTitle: tag == Item.favoriteTag ? "★ 收藏" : "标签：\(tag)")
+                filterButton.lastItem?.representedObject = "tag:\(tag)"
+            }
+        }
+
+        if let item = filterButton.itemArray.first(where: {
+            ($0.representedObject as? String) == selectedValue
+        }) {
+            filterButton.select(item)
         } else {
-            Text(item.content)
-                .lineLimit(7)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            filter = .type(.all)
+            filterButton.selectItem(at: 0)
         }
     }
 
-    private func selectFirstItem() {
-        stopContextKeyMonitor()
-        contextMenuItemID = nil
-        focusedContextAction = nil
-        selectedItemID = selectableItems.first?.id
+    func numberOfRows(in tableView: NSTableView) -> Int { displayedItems.count }
 
-        // The app may have been hidden while FocusState remained true. Force a
-        // fresh first-responder request every time the global shortcut opens it.
-        isListFocused = false
-        DispatchQueue.main.async {
-            guard NSApp.isActive else { return }
-            NSApp.keyWindow?.makeKey()
-            isListFocused = true
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        let item = displayedItems[row]
+        let tagHeight: CGFloat = item.tags.isEmpty ? 0 : 26
+        guard item.type != .image else { return 220 + tagHeight }
+
+        let font = NSFont.systemFont(ofSize: 13.5)
+        let resolvedWidth = max(
+            tableView.bounds.width,
+            contentHost.bounds.width,
+            preferredContentSize.width
+        )
+        let availableWidth = max(resolvedWidth - 28, 120)
+        let measured = (item.content as NSString).boundingRect(
+            with: NSSize(width: availableWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        ).height
+        let lineHeight = ceil(font.ascender - font.descender + font.leading)
+        let textHeight = min(ceil(measured), lineHeight * 7)
+        return max(54, textHeight + 20) + tagHeight
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        viewFor tableColumn: NSTableColumn?,
+        row: Int
+    ) -> NSView? {
+        let item = displayedItems[row]
+        if item.type == .image, let data = item.imageData, let image = NSImage(data: data) {
+            let identifier = NSUserInterfaceItemIdentifier("imageCell")
+            let cell = tableView.makeView(withIdentifier: identifier, owner: self)
+                as? ImageItemCellView ?? ImageItemCellView(frame: .zero)
+            cell.identifier = identifier
+            cell.imageView.image = image
+            cell.configureTags(item.tags)
+            return cell
+        }
+        let identifier = NSUserInterfaceItemIdentifier("textCell")
+        let cell = tableView.makeView(withIdentifier: identifier, owner: self)
+            as? TextItemCellView ?? TextItemCellView(frame: .zero)
+        cell.identifier = identifier
+        cell.textField.stringValue = item.content
+        cell.configureTags(item.tags)
+        return cell
+    }
+
+    private func handleTableKey(_ event: NSEvent) -> Bool {
+        switch Int(event.keyCode) {
+        case kVK_Return, kVK_ANSI_KeypadEnter:
+            pasteSelected()
+            return true
+        case kVK_Escape:
+            NSApp.hide(nil)
+            return true
+        case kVK_RightArrow:
+            showContextMenu()
+            return true
+        default:
+            return false
         }
     }
 
-    private func selectFirstFilteredItem(proxy: ScrollViewProxy) {
-        selectedItemID = selectableItems.first?.id
-        guard let selectedItemID else { return }
-        withAnimation {
-            proxy.scrollTo(selectedItemID, anchor: .top)
+    @objc private func pasteSelected() {
+        guard let item = selectedItem() else { return }
+        viewModel.promote(item)
+        appDelegate.pasteIntoPreviouslyActiveApplication(item)
+    }
+
+    private func selectedItem() -> Item? {
+        let row = tableView.clickedRow >= 0 ? tableView.clickedRow : tableView.selectedRow
+        guard displayedItems.indices.contains(row) else { return nil }
+        return displayedItems[row]
+    }
+
+    private func makeContextMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.delegate = self
+        menu.addItem(withTitle: "搜索", action: #selector(searchItem), keyEquivalent: "")
+        menu.addItem(withTitle: "Decode / Format", action: #selector(transformItem), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "编辑内容", action: #selector(editItem), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "收藏", action: #selector(toggleFavorite), keyEquivalent: "")
+        let tagItem = NSMenuItem(title: "标签", action: nil, keyEquivalent: "")
+        tagItem.submenu = NSMenu()
+        menu.addItem(tagItem)
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "删除", action: #selector(deleteItem), keyEquivalent: "")
+        menu.items.forEach { $0.target = self }
+        return menu
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        let editable = selectedItem().map(isTextItem) ?? false
+        menu.items.first(where: { $0.action == #selector(searchItem) })?.isEnabled = editable
+        menu.items.first(where: { $0.action == #selector(transformItem) })?.isEnabled = editable
+        menu.items.first(where: { $0.action == #selector(editItem) })?.isEnabled = editable
+        let item = selectedItem()
+        let favorite = menu.items.first(where: { $0.action == #selector(toggleFavorite) })
+        favorite?.title = item?.tags.contains(Item.favoriteTag) == true ? "取消收藏" : "收藏"
+        favorite?.state = item?.tags.contains(Item.favoriteTag) == true ? .on : .off
+        if let tagMenu = menu.items.first(where: { $0.title == "标签" })?.submenu {
+            rebuildTagMenu(tagMenu, for: item)
         }
     }
 
-    private func moveSelection(by offset: Int, proxy: ScrollViewProxy) {
-        guard !selectableItems.isEmpty else { return }
-        let currentIndex = selectedItemID.flatMap { id in
-            selectableItems.firstIndex { $0.id == id }
-        } ?? 0
-        let newIndex = min(max(currentIndex + offset, 0), selectableItems.count - 1)
-        let item = selectableItems[newIndex]
-        selectedItemID = item.id
-        withAnimation {
-            proxy.scrollTo(item.id, anchor: .center)
-        }
-    }
-
-    private func pasteSelectedItem() {
-        guard let selectedItemID,
-              let item = selectableItems.first(where: { $0.id == selectedItemID }) else {
-            return
-        }
-        paste(item)
-    }
-
-    @ViewBuilder
-    private func contextMenuButtons(for item: Item) -> some View {
-        Button {
-            search(item)
-        } label: {
-            Label("搜索", systemImage: "magnifyingglass")
-        }
-        .disabled(!isTextItem(item))
-
-        Button {
-            openTransformSheet(for: item)
-        } label: {
-            Label("Decode / Format", systemImage: "text.badge.gearshape")
-        }
-        .disabled(!isTextItem(item))
-
-        Divider()
-
-        Button {
-            openEditSheet(for: item)
-        } label: {
-            Label("编辑内容", systemImage: "pencil")
-        }
-        .disabled(!isEditable(item))
-
-        Divider()
-
-        Button(role: .destructive) {
-            delete(item)
-        } label: {
-            Label("删除", systemImage: "trash")
-        }
-    }
-
-    private func keyboardContextMenu(for item: Item) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            contextActionButton(
-                "搜索",
-                systemImage: "magnifyingglass",
-                contextAction: .search,
-                disabled: !isTextItem(item)
-            ) {
-                contextMenuItemID = nil
-                search(item)
-            }
-            contextActionButton(
-                "Decode / Format",
-                systemImage: "text.badge.gearshape",
-                contextAction: .transform,
-                disabled: !isTextItem(item)
-            ) {
-                openTransformSheet(for: item)
-            }
-            Divider()
-            contextActionButton(
-                "编辑内容",
-                systemImage: "pencil",
-                contextAction: .edit,
-                disabled: !isEditable(item)
-            ) {
-                openEditSheet(for: item)
-            }
-            Divider()
-            contextActionButton(
-                "删除",
-                systemImage: "trash",
-                contextAction: .delete,
-                isDestructive: true
-            ) {
-                delete(item)
-            }
-        }
-        .padding(6)
-        .frame(width: 190)
-        .onKeyPress(.rightArrow) {
-            focusFirstContextAction()
-            return .handled
-        }
-        .onKeyPress(.leftArrow) {
-            focusedContextAction = nil
-            contextMenuItemID = nil
-            DispatchQueue.main.async {
-                isListFocused = true
-            }
-            return .handled
-        }
-    }
-
-    private func contextActionButton(
-        _ title: String,
-        systemImage: String,
-        contextAction: ContextAction,
-        disabled: Bool = false,
-        isDestructive: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 4)
-                .contentShape(Rectangle())
-                .foregroundStyle(isDestructive ? Color.red : Color.primary)
-                .background {
-                    if focusedContextAction == contextAction {
-                        RoundedRectangle(cornerRadius: 5)
-                            .fill(Color.accentColor.opacity(0.22))
-                    }
-                }
-        }
-        .buttonStyle(.plain)
-        .disabled(disabled)
-    }
-
-    private func showContextMenuForSelectedItem() {
-        guard let selectedItemID,
-              selectableItems.contains(where: { $0.id == selectedItemID }) else {
-            return
-        }
-        contextMenuItemID = selectedItemID
-    }
-
-    private func focusFirstContextAction() {
-        guard let contextMenuItemID,
-              let item = selectableItems.first(where: { $0.id == contextMenuItemID }) else {
-            return
-        }
-        focusedContextAction = availableContextActions(for: item).first
-    }
-
-    private func startContextKeyMonitor() {
-        guard contextKeyMonitor == nil else { return }
-        contextKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard contextMenuItemID != nil else { return event }
-
-            switch Int(event.keyCode) {
-            case kVK_RightArrow:
-                focusFirstContextAction()
+    func menuWillOpen(_ menu: NSMenu) {
+        stopContextMenuCloseMonitor()
+        contextMenuCloseMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .rightMouseDown]
+        ) { event in
+            if event.type == .rightMouseDown {
+                menu.cancelTracking()
                 return nil
-            case kVK_LeftArrow:
-                closeKeyboardContextMenu()
-                return nil
-            case kVK_UpArrow:
-                moveContextAction(by: -1)
-                return nil
-            case kVK_DownArrow:
-                moveContextAction(by: 1)
-                return nil
-            case kVK_Return, kVK_ANSI_KeypadEnter:
-                guard focusedContextAction != nil else { return event }
-                executeFocusedContextAction()
-                return nil
-            default:
-                return event
-            }
-        }
-    }
-
-    private func startListKeyMonitor(proxy: ScrollViewProxy) {
-        guard listKeyMonitor == nil else { return }
-        listKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard NSApp.isActive,
-                  transformingItem == nil,
-                  editingItem == nil else {
-                return event
             }
 
-            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if modifiers.contains(.command),
-               modifiers.intersection([.option, .control]).isEmpty {
-                switch Int(event.keyCode) {
-                case kVK_ANSI_F:
-                    stopContextKeyMonitor()
-                    contextMenuItemID = nil
-                    focusedContextAction = nil
-                    isListFocused = false
-                    focusedTopControl = .search
-                    return nil
-                case kVK_ANSI_D:
-                    stopContextKeyMonitor()
-                    contextMenuItemID = nil
-                    focusedContextAction = nil
-                    focusedTopControl = nil
-                    isListFocused = false
-                    DispatchQueue.main.async {
-                        NotificationCenter.default.post(
-                            name: .openItemTypeFilterMenu,
-                            object: nil
-                        )
-                    }
-                    return nil
-                default:
-                    return event
-                }
+            if event.keyCode == kVK_LeftArrow {
+                menu.cancelTracking()
+                return nil
             }
-
-            guard contextMenuItemID == nil,
-                  modifiers.intersection([.command, .option, .control]).isEmpty,
-                  !(NSApp.keyWindow?.firstResponder is NSTextView) else {
-                return event
-            }
-
-            switch Int(event.keyCode) {
-            case kVK_UpArrow:
-                moveSelection(by: -1, proxy: proxy)
-                return nil
-            case kVK_DownArrow:
-                moveSelection(by: 1, proxy: proxy)
-                return nil
-            case kVK_RightArrow:
-                showContextMenuForSelectedItem()
-                return nil
-            case kVK_Return, kVK_ANSI_KeypadEnter:
-                pasteSelectedItem()
-                return nil
-            case kVK_Escape:
-                NSApp.hide(nil)
-                return nil
-            default:
-                return event
-            }
+            return event
         }
     }
 
-    private func focusSearchField() {
-        guard transformingItem == nil, editingItem == nil else { return }
-        stopContextKeyMonitor()
-        contextMenuItemID = nil
-        focusedContextAction = nil
-        isListFocused = false
-        DispatchQueue.main.async {
-            focusedTopControl = .search
-        }
+    func menuDidClose(_ menu: NSMenu) {
+        stopContextMenuCloseMonitor()
+        focusList()
     }
 
-    private func stopListKeyMonitor() {
-        guard let listKeyMonitor else { return }
-        NSEvent.removeMonitor(listKeyMonitor)
-        self.listKeyMonitor = nil
+    private func stopContextMenuCloseMonitor() {
+        guard let contextMenuCloseMonitor else { return }
+        NSEvent.removeMonitor(contextMenuCloseMonitor)
+        self.contextMenuCloseMonitor = nil
     }
 
-    private func stopContextKeyMonitor() {
-        guard let contextKeyMonitor else { return }
-        NSEvent.removeMonitor(contextKeyMonitor)
-        self.contextKeyMonitor = nil
-        focusedContextAction = nil
-    }
-
-    private func closeKeyboardContextMenu() {
-        focusedContextAction = nil
-        contextMenuItemID = nil
-        DispatchQueue.main.async {
-            isListFocused = true
-        }
-    }
-
-    private func availableContextActions(for item: Item) -> [ContextAction] {
-        var actions: [ContextAction] = []
-        if isTextItem(item) {
-            actions.append(contentsOf: [.search, .transform])
-        }
-        if isEditable(item) {
-            actions.append(.edit)
-        }
-        actions.append(.delete)
-        return actions
-    }
-
-    private func moveContextAction(by offset: Int) {
-        guard let contextMenuItemID,
-              let item = selectableItems.first(where: { $0.id == contextMenuItemID }) else {
-            return
-        }
-        let actions = availableContextActions(for: item)
-        guard !actions.isEmpty else { return }
-        let currentIndex = focusedContextAction.flatMap(actions.firstIndex(of:)) ?? 0
-        let newIndex = min(max(currentIndex + offset, 0), actions.count - 1)
-        focusedContextAction = actions[newIndex]
-    }
-
-    private func executeFocusedContextAction() {
-        guard let menuItemID = contextMenuItemID,
-              let item = selectableItems.first(where: { $0.id == menuItemID }),
-              let focusedContextAction else {
-            return
-        }
-
-        switch focusedContextAction {
-        case .search:
-            contextMenuItemID = nil
-            search(item)
-        case .transform:
-            openTransformSheet(for: item)
-        case .edit:
-            openEditSheet(for: item)
-        case .delete:
-            delete(item)
-        }
-    }
-
-    private func search(_ item: Item) {
-        guard isTextItem(item) else { return }
-        let destination = SearchDestinationResolver.destination(for: item.content)
-        if let destination {
-            NSWorkspace.shared.open(destination)
-        }
-    }
-
-    private func openTransformSheet(for item: Item) {
-        stopContextKeyMonitor()
-        contextMenuItemID = nil
-        DispatchQueue.main.async {
-            transformingItem = item
-        }
-    }
-
-    private func openEditSheet(for item: Item) {
-        stopContextKeyMonitor()
-        contextMenuItemID = nil
-        DispatchQueue.main.async {
-            editingItem = item
-        }
-    }
-
-    private func restoreListFocus() {
-        guard transformingItem == nil,
-              editingItem == nil,
-              contextMenuItemID == nil else {
-            return
-        }
-
-        stopContextKeyMonitor()
-        contextMenuItemID = nil
-        focusedContextAction = nil
-
-        // The sheet destroys its focused control. Toggle FocusState so SwiftUI
-        // makes a fresh first-responder request for the borderless main window.
-        isListFocused = false
-        DispatchQueue.main.async {
-            // A menu action may have intentionally opened another application.
-            // In that case, don't steal focus back from it.
-            guard NSApp.isActive else { return }
-            NSApp.windows.first?.makeKeyAndOrderFront(nil)
-            isListFocused = true
-        }
+    private func showContextMenu() {
+        guard tableView.selectedRow >= 0, let menu = tableView.menu else { return }
+        let rect = tableView.rect(ofRow: tableView.selectedRow)
+        menu.popUp(positioning: nil, at: NSPoint(x: rect.maxX - 8, y: rect.midY), in: tableView)
     }
 
     private func isTextItem(_ item: Item) -> Bool {
-        item.type != .image && item.type != .video && item.type != .audio
+        ![ItemType.image, .video, .audio].contains(item.type)
     }
 
-    private func isEditable(_ item: Item) -> Bool {
-        isTextItem(item)
+    @objc private func searchItem() {
+        guard let item = selectedItem(),
+              let url = SearchDestinationResolver.destination(for: item.content) else { return }
+        NSWorkspace.shared.open(url)
     }
 
-    private func delete(_ item: Item) {
-        stopContextKeyMonitor()
-        contextMenuItemID = nil
+    @objc private func transformItem() {
+        guard let item = selectedItem() else { return }
+        presentAsSheet(TransformViewController(item: item))
+    }
+
+    @objc private func editItem() {
+        guard let item = selectedItem() else { return }
+        presentAsSheet(EditItemViewController(item: item) { [weak self] content in
+            self?.viewModel.updateContent(of: item, to: content)
+        })
+    }
+
+    @objc private func deleteItem() {
+        guard let item = selectedItem() else { return }
         viewModel.delete(item)
-        selectedItemID = selectableItems.first?.id
-        DispatchQueue.main.async {
-            isListFocused = true
-        }
+        reloadItems(selectFirst: true)
     }
 
-    private func paste(_ item: Item) {
-        viewModel.promote(item)
-        selectedItemID = item.id
-        appDelegate.pasteIntoPreviouslyActiveApplication(item)
-    }
-}
-
-private struct WindowDragHandle: NSViewRepresentable {
-    func makeNSView(context: Context) -> DragHandleView {
-        DragHandleView()
-    }
-
-    func updateNSView(_ nsView: DragHandleView, context: Context) {}
-
-    final class DragHandleView: NSView {
-        override func mouseDown(with event: NSEvent) {
-            NSCursor.closedHand.push()
-            defer { NSCursor.pop() }
-            window?.performDrag(with: event)
+    private func rebuildTagMenu(_ menu: NSMenu, for item: Item?) {
+        menu.removeAllItems()
+        let tags = Set(viewModel.itemList.list.flatMap(\.tags))
+            .filter { $0 != Item.favoriteTag }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        for tag in tags {
+            let menuItem = menu.addItem(
+                withTitle: tag,
+                action: #selector(toggleTagFromMenu(_:)),
+                keyEquivalent: ""
+            )
+            menuItem.target = self
+            menuItem.representedObject = tag
+            menuItem.state = item?.tags.contains(tag) == true ? .on : .off
         }
-
-        override func resetCursorRects() {
-            super.resetCursorRects()
-            addCursorRect(bounds, cursor: .openHand)
-        }
-    }
-}
-
-private struct ItemTypeFilterMenu: NSViewRepresentable {
-    @Binding var selection: ItemTypeFilter
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(selection: $selection)
+        if !tags.isEmpty { menu.addItem(.separator()) }
+        let newTag = menu.addItem(
+            withTitle: "新建标签…",
+            action: #selector(createTag),
+            keyEquivalent: ""
+        )
+        newTag.target = self
     }
 
-    func makeNSView(context: Context) -> NSPopUpButton {
-        let button = NSPopUpButton(frame: .zero, pullsDown: false)
-        button.controlSize = .small
-        button.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        button.target = context.coordinator
-        button.action = #selector(Coordinator.selectionChanged(_:))
-
-        for filter in ItemTypeFilter.allCases {
-            button.addItem(withTitle: filter.title)
-            button.lastItem?.representedObject = filter.rawValue
-        }
-        button.selectItem(withTitle: selection.title)
-        context.coordinator.attach(to: button)
-        return button
+    @objc private func toggleFavorite() {
+        guard let item = selectedItem() else { return }
+        viewModel.toggleTag(Item.favoriteTag, on: item)
+        reloadItems(selectFirst: false)
     }
 
-    func updateNSView(_ button: NSPopUpButton, context: Context) {
-        if button.titleOfSelectedItem != selection.title {
-            button.selectItem(withTitle: selection.title)
-        }
+    @objc private func toggleTagFromMenu(_ sender: NSMenuItem) {
+        guard let item = selectedItem(), let tag = sender.representedObject as? String else { return }
+        viewModel.toggleTag(tag, on: item)
+        reloadItems(selectFirst: false)
     }
 
-    static func dismantleNSView(
-        _ nsView: NSPopUpButton,
-        coordinator: Coordinator
-    ) {
-        coordinator.detach()
-    }
-
-    final class Coordinator: NSObject {
-        private var selection: Binding<ItemTypeFilter>
-        private weak var button: NSPopUpButton?
-        private var openMenuObserver: NSObjectProtocol?
-
-        init(selection: Binding<ItemTypeFilter>) {
-            self.selection = selection
-        }
-
-        func attach(to button: NSPopUpButton) {
-            self.button = button
-            openMenuObserver = NotificationCenter.default.addObserver(
-                forName: .openItemTypeFilterMenu,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                guard let button = self?.button,
-                      button.window?.isKeyWindow == true else {
-                    return
-                }
-                button.window?.makeFirstResponder(button)
-                button.performClick(nil)
-            }
-        }
-
-        func detach() {
-            if let openMenuObserver {
-                NotificationCenter.default.removeObserver(openMenuObserver)
-            }
-            openMenuObserver = nil
-        }
-
-        @objc func selectionChanged(_ sender: NSPopUpButton) {
-            guard let rawValue = sender.selectedItem?.representedObject as? String,
-                  let filter = ItemTypeFilter(rawValue: rawValue) else {
-                return
-            }
-            selection.wrappedValue = filter
+    @objc private func createTag() {
+        guard let item = selectedItem() else { return }
+        let alert = NSAlert()
+        alert.messageText = "新建标签"
+        alert.informativeText = "输入要添加到此条目的标签名称。"
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        input.placeholderString = "标签名称"
+        alert.accessoryView = input
+        alert.addButton(withTitle: "添加")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let tag = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !tag.isEmpty, tag != Item.favoriteTag else { return }
+        if !item.tags.contains(tag) {
+            viewModel.toggleTag(tag, on: item)
+            reloadItems(selectFirst: false)
         }
     }
 }
 
-enum TextTransform: String, CaseIterable, Identifiable {
-    case base64Encode
-    case base64Decode
-    case formatJSON
-    case compressJSON
-    case parseURL
-
-    var id: Self { self }
-
+enum TextTransform: String, CaseIterable {
+    case base64Encode, base64Decode, formatJSON, compressJSON, parseURL
     var title: String {
         switch self {
         case .base64Encode: "Base64 Encode"
@@ -829,25 +782,15 @@ enum TextTransform: String, CaseIterable, Identifiable {
 
 enum TextTransformError: LocalizedError {
     case invalidBase64
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidBase64: "内容不是有效的 UTF-8 Base64 字符串"
-        }
-    }
+    var errorDescription: String? { "内容不是有效的 UTF-8 Base64 字符串" }
 }
 
 struct SearchDestinationResolver {
     static func destination(for source: String) -> URL? {
         let content = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return nil }
-
         if let url = URL(string: content),
-           let scheme = url.scheme?.lowercased(),
-           scheme == "http" || scheme == "https" {
-            return url
-        }
-
+           ["http", "https"].contains(url.scheme?.lowercased() ?? "") { return url }
         var components = URLComponents(string: "https://www.google.com/search")
         components?.queryItems = [URLQueryItem(name: "q", value: content)]
         return components?.url
@@ -855,91 +798,59 @@ struct SearchDestinationResolver {
 }
 
 struct TextTransformer {
-    static func transform(
-        _ source: String,
-        using transform: TextTransform
-    ) throws -> String {
+    static func transform(_ source: String, using transform: TextTransform) throws -> String {
         switch transform {
         case .base64Encode:
-            return Data(source.utf8).base64EncodedString()
-
+            Data(source.utf8).base64EncodedString()
         case .base64Decode:
-            guard let data = Data(
-                base64Encoded: source,
-                options: .ignoreUnknownCharacters
-            ), let decoded = String(data: data, encoding: .utf8) else {
-                throw TextTransformError.invalidBase64
-            }
-            return decoded
-
+            try decodeBase64(source)
         case .formatJSON:
-            return try jsonString(from: source, prettyPrinted: true)
-
+            try jsonString(source, pretty: true)
         case .compressJSON:
-            return try jsonString(from: source, prettyPrinted: false)
-
+            try jsonString(source, pretty: false)
         case .parseURL:
-            let object = try recursiveURLObject(from: source, depth: 0)
-            let data = try JSONSerialization.data(
-                withJSONObject: object,
-                options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-            )
-            return String(decoding: data, as: UTF8.self)
+            try serialize(recursiveURLObject(source, depth: 0))
         }
     }
 
-    private static func jsonString(
-        from source: String,
-        prettyPrinted: Bool
+    private static func decodeBase64(_ source: String) throws -> String {
+        guard let data = Data(base64Encoded: source, options: .ignoreUnknownCharacters),
+              let value = String(data: data, encoding: .utf8) else {
+            throw TextTransformError.invalidBase64
+        }
+        return value
+    }
+
+    private static func jsonString(_ source: String, pretty: Bool) throws -> String {
+        let object = try JSONSerialization.jsonObject(with: Data(source.utf8), options: .fragmentsAllowed)
+        var options: JSONSerialization.WritingOptions = [.sortedKeys, .withoutEscapingSlashes, .fragmentsAllowed]
+        if pretty { options.insert(.prettyPrinted) }
+        return try serialize(object, options: options)
+    }
+
+    private static func serialize(
+        _ object: Any,
+        options: JSONSerialization.WritingOptions = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
     ) throws -> String {
-        let object = try JSONSerialization.jsonObject(
-            with: Data(source.utf8),
-            options: [.fragmentsAllowed]
-        )
-        var options: JSONSerialization.WritingOptions = [
-            .sortedKeys,
-            .withoutEscapingSlashes,
-            .fragmentsAllowed
-        ]
-        if prettyPrinted {
-            options.insert(.prettyPrinted)
-        }
-        let data = try JSONSerialization.data(withJSONObject: object, options: options)
-        return String(decoding: data, as: UTF8.self)
+        String(decoding: try JSONSerialization.data(withJSONObject: object, options: options), as: UTF8.self)
     }
 
-    private static func recursiveURLObject(
-        from source: String,
-        depth: Int
-    ) throws -> Any {
-        guard depth < 8 else { return fullyPercentDecoded(source) }
-        let decodedSource = fullyPercentDecoded(source)
-
-        let components: URLComponents?
-        if decodedSource.contains("://") {
-            components = URLComponents(string: decodedSource)
-        } else if decodedSource.contains("=") {
-            components = URLComponents(string: "https://local.invalid/?\(decodedSource)")
-        } else {
-            components = nil
+    private static func recursiveURLObject(_ source: String, depth: Int) throws -> Any {
+        guard depth < 8 else { return fullyDecoded(source) }
+        let decoded = fullyDecoded(source)
+        let components = URLComponents(
+            string: decoded.contains("://") ? decoded :
+                (decoded.contains("=") ? "https://local.invalid/?\(decoded)" : "")
+        )
+        guard let components, let queryItems = components.queryItems, !queryItems.isEmpty else {
+            return decoded
         }
-
-        guard let components,
-              let queryItems = components.queryItems,
-              !queryItems.isEmpty else {
-            return decodedSource
-        }
-
         var parameters: [String: Any] = [:]
-        for queryItem in queryItems {
-            parameters[queryItem.name] = try recursiveURLObject(
-                from: queryItem.value ?? "",
-                depth: depth + 1
-            )
+        for item in queryItems {
+            parameters[item.name] = try recursiveURLObject(item.value ?? "", depth: depth + 1)
         }
-
         var object: [String: Any] = ["parameters": parameters]
-        if decodedSource.contains("://") {
+        if decoded.contains("://") {
             object["scheme"] = components.scheme ?? ""
             object["host"] = components.host ?? ""
             object["path"] = components.path
@@ -947,143 +858,128 @@ struct TextTransformer {
         return object
     }
 
-    private static func fullyPercentDecoded(_ source: String) -> String {
+    private static func fullyDecoded(_ source: String) -> String {
         var value = source
         for _ in 0..<8 {
-            guard let decoded = value.removingPercentEncoding,
-                  decoded != value else {
-                break
-            }
+            guard let decoded = value.removingPercentEncoding, decoded != value else { break }
             value = decoded
         }
         return value
     }
 }
 
-private struct TextTransformSheet: View {
-    let item: Item
+private final class TransformViewController: NSViewController {
+    private let item: Item
+    private let popup = NSPopUpButton()
+    private let sourceView = NSTextView()
+    private let resultView = NSTextView()
+    private let errorLabel = NSTextField(labelWithString: "")
 
-    @Environment(\.dismiss) private var dismiss
-    @State private var transform: TextTransform = .base64Decode
-    @State private var result = ""
-    @State private var errorMessage: String?
+    init(item: Item) {
+        self.item = item
+        super.init(nibName: nil, bundle: nil)
+        preferredContentSize = NSSize(width: 620, height: 460)
+    }
+    required init?(coder: NSCoder) { fatalError() }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Decode / Format")
-                    .font(.headline)
-                Spacer()
-                Picker("操作", selection: $transform) {
-                    ForEach(TextTransform.allCases) { transform in
-                        Text(transform.title).tag(transform)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 210)
-                Button("执行") {
-                    performTransform()
-                }
-                .keyboardShortcut(.return, modifiers: [.command])
-            }
+    override func loadView() {
+        view = NSView()
+        popup.addItems(withTitles: TextTransform.allCases.map(\.title))
+        popup.selectItem(at: 1)
+        popup.target = self
+        popup.action = #selector(run)
+        sourceView.string = item.content
+        sourceView.isEditable = false
+        resultView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        errorLabel.textColor = .systemRed
 
-            GroupBox("原始内容") {
-                ScrollView {
-                    Text(item.content)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(6)
-                }
-                .frame(minHeight: 80)
-            }
-
-            GroupBox("处理结果") {
-                TextEditor(text: $result)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 150)
-            }
-
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
-
-            HStack {
-                Spacer()
-                Button("关闭") {
-                    dismiss()
-                }
-                Button("复制结果") {
-                    let pasteboard = NSPasteboard.general
-                    pasteboard.clearContents()
-                    pasteboard.setString(result, forType: .string)
-                }
-                .disabled(result.isEmpty)
-            }
-        }
-        .padding(16)
-        .frame(width: 620, height: 460)
-        .onAppear {
-            performTransform()
-        }
-        .onChange(of: transform) {
-            performTransform()
-        }
+        let runButton = NSButton(title: "执行", target: self, action: #selector(run))
+        let copyButton = NSButton(title: "复制结果", target: self, action: #selector(copyResult))
+        let closeButton = NSButton(title: "关闭", target: self, action: #selector(close))
+        let top = NSStackView(views: [popup, runButton])
+        top.orientation = .horizontal
+        let buttons = NSStackView(views: [closeButton, copyButton])
+        buttons.orientation = .horizontal
+        let stack = NSStackView(views: [
+            top, scroll(sourceView), scroll(resultView), errorLabel, buttons
+        ])
+        stack.orientation = .vertical
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -16),
+            sourceView.heightAnchor.constraint(greaterThanOrEqualToConstant: 80),
+            resultView.heightAnchor.constraint(greaterThanOrEqualToConstant: 150)
+        ])
+        run()
     }
 
-    private func performTransform() {
+    @objc private func run() {
         do {
-            result = try TextTransformer.transform(item.content, using: transform)
-            errorMessage = nil
+            resultView.string = try TextTransformer.transform(
+                item.content, using: TextTransform.allCases[popup.indexOfSelectedItem]
+            )
+            errorLabel.stringValue = ""
         } catch {
-            result = ""
-            errorMessage = error.localizedDescription
+            resultView.string = ""
+            errorLabel.stringValue = error.localizedDescription
         }
     }
+    @objc private func copyResult() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(resultView.string, forType: .string)
+    }
+    @objc private func close() { dismiss(nil) }
 }
 
-private struct EditItemSheet: View {
-    let item: Item
-    let onSave: (String) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var content: String
-
+private final class EditItemViewController: NSViewController {
+    private let item: Item
+    private let onSave: (String) -> Void
+    private let textView = NSTextView()
     init(item: Item, onSave: @escaping (String) -> Void) {
         self.item = item
         self.onSave = onSave
-        _content = State(initialValue: item.content)
+        super.init(nibName: nil, bundle: nil)
+        preferredContentSize = NSSize(width: 560, height: 350)
     }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("编辑内容")
-                .font(.headline)
-
-            TextEditor(text: $content)
-                .font(.system(.body, design: .monospaced))
-                .frame(minWidth: 520, minHeight: 280)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(.separator)
-                }
-
-            HStack {
-                Spacer()
-                Button("取消") {
-                    dismiss()
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("保存") {
-                    onSave(content)
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(content.isEmpty)
-            }
-        }
-        .padding(16)
+    required init?(coder: NSCoder) { fatalError() }
+    override func loadView() {
+        view = NSView()
+        textView.string = item.content
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        let cancel = NSButton(title: "取消", target: self, action: #selector(close))
+        let save = NSButton(title: "保存", target: self, action: #selector(save))
+        save.keyEquivalent = "\r"
+        let buttons = NSStackView(views: [cancel, save])
+        buttons.orientation = .horizontal
+        let stack = NSStackView(views: [scroll(textView), buttons])
+        stack.orientation = .vertical
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -16)
+        ])
     }
+    @objc private func save() {
+        guard !textView.string.isEmpty else { return }
+        onSave(textView.string)
+        dismiss(nil)
+    }
+    @objc private func close() { dismiss(nil) }
+}
+
+private func scroll(_ documentView: NSView) -> NSScrollView {
+    let scroll = NSScrollView()
+    scroll.documentView = documentView
+    scroll.hasVerticalScroller = true
+    scroll.borderType = .bezelBorder
+    return scroll
 }

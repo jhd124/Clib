@@ -1,4 +1,3 @@
-import SwiftUI
 import AppKit
 
 /// Storage is intentionally append-oriented: a remote implementation can later
@@ -88,8 +87,13 @@ final class LocalClipboardHistoryStore: ClipboardHistoryStore {
     }
 }
 
-final class ClipboardViewModel: ObservableObject {
-    @Published var itemList: ItemList
+final class ClipboardViewModel {
+    private(set) var itemList: ItemList {
+        didSet {
+            onChange?(itemList.list)
+        }
+    }
+    var onChange: (([Item]) -> Void)?
 
     private let store: ClipboardHistoryStore
     private var clipboardTimer: Timer?
@@ -237,6 +241,18 @@ final class ClipboardViewModel: ObservableObject {
             try store.append(updatedItem)
         } catch {
             print("保存条目修改失败：\(error)")
+        }
+    }
+
+    func toggleTag(_ tag: String, on item: Item) {
+        let updatedItem = item.togglingTag(tag)
+        guard updatedItem.tags != item.tags else { return }
+        itemList.replace(updatedItem)
+
+        do {
+            try store.append(updatedItem)
+        } catch {
+            print("保存条目标签失败：\(error)")
         }
     }
 
