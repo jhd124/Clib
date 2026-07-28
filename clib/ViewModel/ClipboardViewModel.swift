@@ -213,6 +213,20 @@ final class ClipboardViewModel {
         }
     }
 
+    func clearHistory() {
+        let items = itemList.list
+        guard !items.isEmpty else { return }
+        itemList.list.removeAll()
+
+        do {
+            for item in items {
+                try store.append(item.tombstone())
+            }
+        } catch {
+            print("清空剪贴板历史失败：\(error)")
+        }
+    }
+
     private func isWebURL(_ content: String) -> Bool {
         guard let url = URL(string: content),
               let scheme = url.scheme?.lowercased() else {

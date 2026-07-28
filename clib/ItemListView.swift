@@ -49,7 +49,7 @@ private final class WindowDragHandleView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.cornerRadius = 7
+        layer?.cornerRadius = 6
 
         imageView.image = NSImage(
             systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right",
@@ -57,7 +57,7 @@ private final class WindowDragHandleView: NSView {
         )
         imageView.contentTintColor = .secondaryLabelColor
         imageView.symbolConfiguration = NSImage.SymbolConfiguration(
-            pointSize: 10,
+            pointSize: 8,
             weight: .semibold
         )
         imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -76,7 +76,7 @@ private final class WindowDragHandleView: NSView {
 
     override func updateLayer() {
         layer?.backgroundColor = NSColor.separatorColor
-            .withAlphaComponent(0.16)
+            .withAlphaComponent(0.08)
             .cgColor
     }
 
@@ -190,31 +190,47 @@ private final class ImageItemCellView: NSView {
     }
 }
 
-private final class TagBadgeView: NSTextField {
+private final class TagBadgeView: NSView {
     init(tag: String) {
-        let title = tag == Item.favoriteTag ? "★ 收藏" : tag
+        let title = tag
         super.init(frame: .zero)
-        stringValue = title
-        isEditable = false
-        isSelectable = false
-        isBezeled = false
-        drawsBackground = true
-        backgroundColor = tag == Item.favoriteTag
-            ? NSColor.systemYellow.withAlphaComponent(0.18)
-            : NSColor.controlAccentColor.withAlphaComponent(0.12)
-        textColor = tag == Item.favoriteTag ? .systemOrange : .controlAccentColor
-        font = .systemFont(ofSize: 10.5, weight: .medium)
-        alignment = .center
-        lineBreakMode = .byTruncatingTail
-        maximumNumberOfLines = 1
-        cell?.usesSingleLineMode = true
+        let font = NSFont.systemFont(ofSize: 10.5, weight: .medium)
+        let label = NSTextField(labelWithString: title)
+        label.textColor = tag == Item.favoriteTag ? .systemOrange : .controlAccentColor
+        label.font = font
+        label.alignment = .center
+        label.lineBreakMode = .byTruncatingTail
+        label.maximumNumberOfLines = 1
+        label.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        label.translatesAutoresizingMaskIntoConstraints = false
+
         wantsLayer = true
+        layer?.backgroundColor = (
+            tag == Item.favoriteTag
+                ? NSColor.systemYellow.withAlphaComponent(0.18)
+                : NSColor.controlAccentColor.withAlphaComponent(0.12)
+        ).cgColor
         layer?.cornerRadius = 5
         layer?.masksToBounds = true
         translatesAutoresizingMaskIntoConstraints = false
-        let width = min(max((title as NSString).size(withAttributes: [.font: font!]).width + 14, 36), 120)
+
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 9),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -9),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+
+        let width = min(
+            max((title as NSString).size(withAttributes: [.font: font]).width + 18, 44),
+            180
+        )
         widthAnchor.constraint(equalToConstant: ceil(width)).isActive = true
         heightAnchor.constraint(equalToConstant: 20).isActive = true
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+        setContentHuggingPriority(.required, for: .horizontal)
+        toolTip = title
     }
 
     required init?(coder: NSCoder) {
@@ -370,8 +386,8 @@ final class ItemListViewController: NSViewController,
         NSLayoutConstraint.activate([
             dragHandle.topAnchor.constraint(equalTo: contentHost.topAnchor, constant: 10),
             dragHandle.leadingAnchor.constraint(equalTo: contentHost.leadingAnchor, constant: 12),
-            dragHandle.widthAnchor.constraint(equalToConstant: 28),
-            dragHandle.heightAnchor.constraint(equalToConstant: 28),
+            dragHandle.widthAnchor.constraint(equalToConstant: 24),
+            dragHandle.heightAnchor.constraint(equalTo: dragHandle.widthAnchor),
             searchField.leadingAnchor.constraint(equalTo: dragHandle.trailingAnchor, constant: 8),
             searchField.heightAnchor.constraint(equalToConstant: 28),
             searchField.centerYAnchor.constraint(equalTo: dragHandle.centerYAnchor),
@@ -431,6 +447,12 @@ final class ItemListViewController: NSViewController,
             accessibilityDescription: pinned ? "取消置顶" : "始终置顶"
         )
         pinButton.contentTintColor = pinned ? .controlAccentColor : .secondaryLabelColor
+    }
+
+    func clearHistory() {
+        viewModel.clearHistory()
+        filter = .type(.all)
+        reloadItems(selectFirst: false)
     }
 
     private func focusList() {
@@ -525,7 +547,7 @@ final class ItemListViewController: NSViewController,
         if !tags.isEmpty {
             filterButton.menu?.addItem(.separator())
             for tag in tags {
-                filterButton.addItem(withTitle: tag == Item.favoriteTag ? "★ 收藏" : "标签：\(tag)")
+                filterButton.addItem(withTitle: tag == Item.favoriteTag ? "收藏" : "标签：\(tag)")
                 filterButton.lastItem?.representedObject = "tag:\(tag)"
             }
         }

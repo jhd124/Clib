@@ -11,6 +11,7 @@ extension Notification.Name {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowController: ClipboardWindowController?
     private var eventMonitor: Any?
+    private var statusItem: NSStatusItem?
     private var previouslyActiveApplication: NSRunningApplication?
     private(set) var isPinned = false
 
@@ -22,8 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.regular)
         buildMainMenu()
+        setupStatusItem()
         checkAccessibilityPermissions()
         setupGlobalHotkeyListener()
 
@@ -39,6 +41,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let applicationItem = NSMenuItem()
         mainMenu.addItem(applicationItem)
         let applicationMenu = NSMenu()
+        applicationMenu.addItem(
+            withTitle: "清空剪贴板记录…",
+            action: #selector(confirmClearHistory),
+            keyEquivalent: ""
+        )
+        applicationMenu.addItem(.separator())
         applicationMenu.addItem(
             withTitle: "退出 clib",
             action: #selector(NSApplication.terminate(_:)),
@@ -61,6 +69,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         clipboardItem.submenu = clipboardMenu
         NSApp.mainMenu = mainMenu
+    }
+
+    @objc private func confirmClearHistory() {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "清空所有剪贴板记录？"
+        alert.informativeText = "此操作会删除全部历史记录，且无法撤销。"
+        alert.addButton(withTitle: "清空")
+        alert.addButton(withTitle: "取消")
+        alert.buttons.first?.hasDestructiveAction = true
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        windowController?.contentController.clearHistory()
+    }
+
+    private func setupStatusItem() {
+        let item = NSStatusBar.system.statusItem(
+            withLength: NSStatusItem.squareLength
+        )
+        if let button = item.button {
+            button.image = NSImage(
+                systemSymbolName: "clipboard",
+                accessibilityDescription: "打开 clib"
+            )
+            button.image?.isTemplate = true
+            button.toolTip = "打开 clib"
+            button.target = self
+            button.action = #selector(statusItemClicked)
+        }
+        statusItem = item
+    }
+
+    @objc private func statusItemClicked() {
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        if frontmost?.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            previouslyActiveApplication = frontmost
+        }
+        presentMainWindow()
+        NotificationCenter.default.post(name: .clipboardPickerDidOpen, object: nil)
     }
 
     @objc private func focusSearch() {
@@ -173,15 +220,20 @@ final class ClipboardWindowController: NSWindowController {
         contentController.preferredContentSize = NSSize(width: 520, height: 620)
         let window = ClipboardPanel(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 620),
-            styleMask: [.borderless, .fullSizeContentView, .resizable],
+            styleMask: [.titled, .fullSizeContentView, .resizable],
             backing: .buffered,
             defer: false
         )
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
         window.contentViewController = contentController
         window.isReleasedWhenClosed = false
         window.hidesOnDeactivate = false
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-        window.isMovableByWindowBackground = false
+        window.isMovableByWindowBackground = true
         window.isOpaque = false
         window.backgroundColor = .clear
         window.hasShadow = true

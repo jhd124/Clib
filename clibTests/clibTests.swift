@@ -170,6 +170,19 @@ final class ClipboardViewModelTests: XCTestCase {
         XCTAssertNotNil(store.appendedItems.last?.deletedAt)
     }
 
+    func testClearHistoryRemovesAllItemsAndPersistsTombstones() {
+        let first = Item(content: "first", type: .text)
+        let second = Item(content: "second", type: .text)
+        let store = MemoryClipboardHistoryStore(initialItems: [first, second])
+        let viewModel = ClipboardViewModel(store: store, startMonitoring: false)
+
+        viewModel.clearHistory()
+
+        XCTAssertTrue(viewModel.itemList.list.isEmpty)
+        XCTAssertEqual(Set(store.appendedItems.map(\.id)), Set([first.id, second.id]))
+        XCTAssertTrue(store.appendedItems.allSatisfy { $0.deletedAt != nil })
+    }
+
     func testEditingTextIntoURLReclassifiesAndPersistsIt() {
         let item = Item(content: "example", type: .text)
         let store = MemoryClipboardHistoryStore(initialItems: [item])
