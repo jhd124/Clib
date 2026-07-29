@@ -105,6 +105,15 @@
 "clear.title" = "¿Borrar todo el historial del portapapeles?";
 "clear.message" = "Esta acción elimina todo el historial y no se puede deshacer.";
 "clear.action" = "Borrar";
+"clear.preserve_tagged" = "Conservar favoritos y elementos etiquetados";
 
 "status.paused" = "Registro de clib en pausa";
 "status.open" = "Abrir clib";
+
+"language.menu" = "Idioma";
+"language.system" = "Idioma del sistema";
+"language.chinese" = "Chino";
+"language.english" = "Inglés";
+"language.french" = "Francés";
+"language.portuguese" = "Portugués";
+"language.spanish" = "Español";

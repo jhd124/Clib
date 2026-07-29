@@ -250,10 +250,13 @@ final class ClipboardViewModel {
         }
     }
 
-    func clearHistory() {
-        let items = itemList.list
+    func clearHistory(preservingTaggedItems: Bool = false) {
+        let items = preservingTaggedItems
+            ? itemList.list.filter { $0.tags.isEmpty }
+            : itemList.list
         guard !items.isEmpty else { return }
-        itemList.list.removeAll()
+        let removedIDs = Set(items.map(\.id))
+        itemList.list.removeAll { removedIDs.contains($0.id) }
 
         do {
             for item in items {
@@ -318,7 +321,7 @@ final class ClipboardViewModel {
             return
         }
         let expiredItems = itemList.list.filter {
-            $0.createdAt < cutoff && !$0.tags.contains(Item.favoriteTag)
+            $0.createdAt < cutoff && $0.tags.isEmpty
         }
         guard !expiredItems.isEmpty else { return }
         let expiredIDs = Set(expiredItems.map(\.id))

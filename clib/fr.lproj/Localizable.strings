@@ -105,6 +105,15 @@
 "clear.title" = "Effacer tout l’historique du presse-papiers ?";
 "clear.message" = "Cette action supprime tout l’historique et ne peut pas être annulée.";
 "clear.action" = "Effacer";
+"clear.preserve_tagged" = "Conserver les favoris et les éléments étiquetés";
 
 "status.paused" = "Enregistrement de clib suspendu";
 "status.open" = "Ouvrir clib";
+
+"language.menu" = "Langue";
+"language.system" = "Langue du système";
+"language.chinese" = "Chinois";
+"language.english" = "Anglais";
+"language.french" = "Français";
+"language.portuguese" = "Portugais";
+"language.spanish" = "Espagnol";

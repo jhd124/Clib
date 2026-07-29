@@ -105,6 +105,15 @@
 "clear.title" = "Limpar todo o histórico da área de transferência?";
 "clear.message" = "Esta ação exclui todo o histórico e não pode ser desfeita.";
 "clear.action" = "Limpar";
+"clear.preserve_tagged" = "Manter favoritos e itens com etiquetas";
 
 "status.paused" = "Registro do clib pausado";
 "status.open" = "Abrir clib";
+
+"language.menu" = "Idioma";
+"language.system" = "Padrão do sistema";
+"language.chinese" = "Chinês";
+"language.english" = "Inglês";
+"language.french" = "Francês";
+"language.portuguese" = "Português";
+"language.spanish" = "Espanhol";

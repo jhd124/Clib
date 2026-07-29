@@ -63,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var eventMonitor: Any?
     private var statusItem: NSStatusItem?
     private weak var themeMenu: NSMenu?
+    private weak var languageMenu: NSMenu?
     private weak var pauseRecordingMenuItem: NSMenuItem?
     private var previouslyActiveApplication: NSRunningApplication?
     private let privacySettingsStore = ClipboardPrivacySettingsStore()
@@ -122,6 +123,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         themeItem.submenu = themes
         themeMenu = themes
         applicationMenu.addItem(themeItem)
+        let languageItem = NSMenuItem(
+            title: L10n.text("language.menu"),
+            action: nil,
+            keyEquivalent: ""
+        )
+        let languages = NSMenu(title: L10n.text("language.menu"))
+        for language in AppLanguage.allCases {
+            let item = NSMenuItem(
+                title: language.title,
+                action: #selector(selectLanguage(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = language.rawValue
+            languages.addItem(item)
+        }
+        languageItem.submenu = languages
+        languageMenu = languages
+        applicationMenu.addItem(languageItem)
         applicationMenu.addItem(.separator())
         applicationMenu.addItem(
             withTitle: L10n.text("menu.privacy_history_ellipsis"),
@@ -170,6 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardItem.submenu = clipboardMenu
         NSApp.mainMenu = mainMenu
         updateThemeMenuState()
+        updateLanguageMenuState()
         updatePrivacyIndicators()
     }
 
@@ -188,6 +209,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc private func selectLanguage(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let language = AppLanguage(rawValue: raw) else { return }
+        AppLanguage.current = language
+        buildMainMenu()
+        windowController?.contentController.applyLocalization()
+        updatePrivacyIndicators()
+    }
+
+    private func updateLanguageMenuState() {
+        let selected = AppLanguage.current
+        languageMenu?.items.forEach {
+            $0.state = ($0.representedObject as? String) == selected.rawValue
+                ? .on
+                : .off
+        }
+    }
+
     @objc private func confirmClearHistory() {
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -197,9 +236,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: L10n.text("common.cancel"))
         alert.buttons.first?.hasDestructiveAction = true
         alert.buttons[1].keyEquivalent = "\u{1b}"
+        let preserveTagged = NSButton(
+            checkboxWithTitle: L10n.text("clear.preserve_tagged"),
+            target: nil,
+            action: nil
+        )
+        preserveTagged.state = .on
+        alert.accessoryView = preserveTagged
 
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        windowController?.contentController.clearHistory()
+        windowController?.contentController.clearHistory(
+            preservingTaggedItems: preserveTagged.state == .on
+        )
     }
 
     @objc private func showPrivacySettings() {

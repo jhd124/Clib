@@ -105,6 +105,15 @@
 "clear.title" = "Clear All Clipboard History?";
 "clear.message" = "This deletes all history and cannot be undone.";
 "clear.action" = "Clear";
+"clear.preserve_tagged" = "Keep favorites and tagged items";
 
 "status.paused" = "clib Recording Paused";
 "status.open" = "Open clib";
+
+"language.menu" = "Language";
+"language.system" = "System Default";
+"language.chinese" = "Chinese";
+"language.english" = "English";
+"language.french" = "French";
+"language.portuguese" = "Portuguese";
+"language.spanish" = "Spanish";

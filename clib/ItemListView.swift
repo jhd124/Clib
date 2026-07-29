@@ -723,8 +723,17 @@ final class ItemListViewController: NSViewController,
         tableView.reloadData()
     }
 
-    func clearHistory() {
-        viewModel.clearHistory()
+    func applyLocalization() {
+        searchField.placeholderString = L10n.text("search.placeholder")
+        emptyLabel.stringValue = L10n.text("clipboard.empty")
+        tableView.menu = makeContextMenu()
+        rebuildFilterMenu()
+        applyTheme()
+        tableView.reloadData()
+    }
+
+    func clearHistory(preservingTaggedItems: Bool = false) {
+        viewModel.clearHistory(preservingTaggedItems: preservingTaggedItems)
         filter = .type(.all)
         reloadItems(selectFirst: false)
     }
