@@ -670,6 +670,8 @@ final class ItemListViewController: NSViewController,
         let menu = NSMenu()
         menu.delegate = self
         menu.addItem(withTitle: "搜索", action: #selector(searchItem), keyEquivalent: "")
+        menu.addItem(withTitle: "打开 URL", action: #selector(openURLItem), keyEquivalent: "")
+        menu.addItem(withTitle: "运行命令", action: #selector(runCommandItem), keyEquivalent: "")
         menu.addItem(withTitle: "Decode / Format", action: #selector(transformItem), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "编辑内容", action: #selector(editItem), keyEquivalent: "")
@@ -687,6 +689,15 @@ final class ItemListViewController: NSViewController,
     func menuNeedsUpdate(_ menu: NSMenu) {
         let editable = selectedItem().map(isTextItem) ?? false
         menu.items.first(where: { $0.action == #selector(searchItem) })?.isEnabled = editable
+        let canOpenURL = selectedItem().flatMap {
+            SearchDestinationResolver.webURL(for: $0.content)
+        } != nil
+        menu.items.first(where: { $0.action == #selector(openURLItem) })?.isEnabled = canOpenURL
+        let canRunCommand = selectedItem().map {
+            isTextItem($0) &&
+            !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        } ?? false
+        menu.items.first(where: { $0.action == #selector(runCommandItem) })?.isEnabled = canRunCommand
         menu.items.first(where: { $0.action == #selector(transformItem) })?.isEnabled = editable
         menu.items.first(where: { $0.action == #selector(editItem) })?.isEnabled = editable
         let item = selectedItem()
@@ -741,6 +752,42 @@ final class ItemListViewController: NSViewController,
         guard let item = selectedItem(),
               let url = SearchDestinationResolver.destination(for: item.content) else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    @objc private func openURLItem() {
+        guard let item = selectedItem(),
+              let url = SearchDestinationResolver.webURL(for: item.content) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc private func runCommandItem() {
+        guard let item = selectedItem() else { return }
+        let command = item.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else { return }
+
+        do {
+            let scriptURL = try ShellCommandLauncher.makeScript(for: command)
+            NSWorkspace.shared.open(
+                scriptURL,
+                configuration: NSWorkspace.OpenConfiguration()
+            ) { [weak self] _, error in
+                guard let error else { return }
+                DispatchQueue.main.async {
+                    self?.showCommandLaunchError(error)
+                }
+            }
+        } catch {
+            showCommandLaunchError(error)
+        }
+    }
+
+    private func showCommandLaunchError(_ error: Error) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "无法运行命令"
+        alert.informativeText = error.localizedDescription
+        alert.addButton(withTitle: "好")
+        alert.runModal()
     }
 
     @objc private func transformItem() {
@@ -847,14 +894,52 @@ enum TextTransformError: LocalizedError {
 }
 
 struct SearchDestinationResolver {
+    static func webURL(for source: String) -> URL? {
+        let content = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: content),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              url.host?.isEmpty == false else {
+            return nil
+        }
+        return url
+    }
+
     static func destination(for source: String) -> URL? {
         let content = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return nil }
-        if let url = URL(string: content),
-           ["http", "https"].contains(url.scheme?.lowercased() ?? "") { return url }
+        if let url = webURL(for: content) { return url }
         var components = URLComponents(string: "https://www.google.com/search")
         components?.queryItems = [URLQueryItem(name: "q", value: content)]
         return components?.url
+    }
+}
+
+enum ShellCommandLauncher {
+    static func makeScript(for command: String) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clib-commands", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+
+        let scriptURL = directory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("command")
+        let script = """
+        #!/bin/zsh
+        rm -f -- "$0"
+        \(command)
+        status=$?
+        printf '\\n[clib] 命令执行结束，退出状态：%d\\n' "$status"
+        exec "${SHELL:-/bin/zsh}" -l
+        """
+        try Data(script.utf8).write(to: scriptURL, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: scriptURL.path
+        )
+        return scriptURL
     }
 }
 

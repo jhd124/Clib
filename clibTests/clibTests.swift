@@ -310,6 +310,25 @@ final class TextTransformerTests: XCTestCase {
 }
 
 final class SearchDestinationResolverTests: XCTestCase {
+    func testWebURLAcceptsHTTPAndHTTPSLinks() {
+        XCTAssertEqual(
+            SearchDestinationResolver.webURL(for: " https://example.com/path?q=1 ")?
+                .absoluteString,
+            "https://example.com/path?q=1"
+        )
+        XCTAssertEqual(
+            SearchDestinationResolver.webURL(for: "http://localhost:8080")?
+                .absoluteString,
+            "http://localhost:8080"
+        )
+    }
+
+    func testWebURLRejectsPlainTextAndNonWebSchemes() {
+        XCTAssertNil(SearchDestinationResolver.webURL(for: "example.com"))
+        XCTAssertNil(SearchDestinationResolver.webURL(for: "file:///tmp/example"))
+        XCTAssertNil(SearchDestinationResolver.webURL(for: "https://"))
+    }
+
     func testHTTPURLIsOpenedDirectly() {
         XCTAssertEqual(
             SearchDestinationResolver.destination(
@@ -336,6 +355,22 @@ final class SearchDestinationResolverTests: XCTestCase {
 
     func testBlankSearchHasNoDestination() {
         XCTAssertNil(SearchDestinationResolver.destination(for: " \n "))
+    }
+}
+
+final class ShellCommandLauncherTests: XCTestCase {
+    func testCreatesExecutableSelfDeletingCommandScript() throws {
+        let url = try ShellCommandLauncher.makeScript(for: "printf 'hello'")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let script = try String(contentsOf: url, encoding: .utf8)
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+
+        XCTAssertTrue(script.hasPrefix("#!/bin/zsh\n"))
+        XCTAssertTrue(script.contains("rm -f -- \"$0\""))
+        XCTAssertTrue(script.contains("printf 'hello'"))
+        XCTAssertTrue(script.contains("exec \"${SHELL:-/bin/zsh}\" -l"))
+        XCTAssertEqual(attributes[.posixPermissions] as? Int, 0o700)
     }
 }
 
