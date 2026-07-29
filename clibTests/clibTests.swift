@@ -1,4 +1,6 @@
 import XCTest
+import AppKit
+import CoreImage
 @testable import clib
 
 final class ItemListTests: XCTestCase {
@@ -129,7 +131,11 @@ final class LocalClipboardHistoryStoreTests: XCTestCase {
         )
         try Data((json + "\n").utf8).write(to: historyURL)
 
-        XCTAssertEqual(try LocalClipboardHistoryStore(fileURL: historyURL).load().first?.tags, [])
+        let item = try LocalClipboardHistoryStore(fileURL: historyURL).load().first
+        XCTAssertEqual(item?.tags, [])
+        XCTAssertEqual(item?.recognizedText, "")
+        XCTAssertEqual(item?.qrCodePayloads, [])
+        XCTAssertEqual(item?.imageAnalysisCompleted, false)
     }
 }
 
@@ -215,6 +221,422 @@ final class ClipboardViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.itemList.list[0].tags, ["工作"])
         XCTAssertEqual(store.appendedItems.last?.tags, ["工作"])
+    }
+
+    func testRetentionRemovesExpiredItemsButKeepsFavorites() {
+        let defaultsName = "ClipboardRetentionTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: defaultsName)!
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let settings = ClipboardPrivacySettingsStore(defaults: defaults)
+        settings.setRetentionPeriod(.sevenDays)
+
+        let oldDate = Calendar.current.date(
+            byAdding: .day,
+            value: -10,
+            to: Date()
+        )!
+        let expired = Item(
+            content: "expired",
+            type: .text,
+            createdAt: oldDate
+        )
+        let favorite = Item(
+            content: "favorite",
+            type: .text,
+            createdAt: oldDate,
+            tags: [Item.favoriteTag]
+        )
+        let store = MemoryClipboardHistoryStore(
+            initialItems: [expired, favorite]
+        )
+
+        let viewModel = ClipboardViewModel(
+            store: store,
+            privacySettingsStore: settings,
+            startMonitoring: false
+        )
+
+        XCTAssertEqual(viewModel.itemList.list.map(\.id), [favorite.id])
+        XCTAssertEqual(store.appendedItems.count, 1)
+        XCTAssertEqual(store.appendedItems.first?.id, expired.id)
+        XCTAssertNotNil(store.appendedItems.first?.deletedAt)
+    }
+
+    func testUserTriggeredImageAnalysisResultIsStoredAndPersisted() {
+        let image = Item(
+            content: "",
+            type: .image,
+            imageData: Data([1, 2, 3])
+        )
+        let store = MemoryClipboardHistoryStore(initialItems: [image])
+        let recognizer = StubImageRecognizer(
+            result: ImageRecognitionResult(
+                text: "本地 OCR 结果",
+                qrCodes: ["https://example.com/from-qr"]
+            )
+        )
+        let viewModel = ClipboardViewModel(
+            store: store,
+            imageRecognizer: recognizer,
+            startMonitoring: false
+        )
+        let completed = expectation(description: "图片分析结果写入")
+        viewModel.onChange = { items in
+            if items.first?.imageAnalysisCompleted == true {
+                completed.fulfill()
+            }
+        }
+
+        XCTAssertTrue(viewModel.analyzeImage(image))
+        wait(for: [completed], timeout: 2)
+
+        XCTAssertEqual(viewModel.itemList.list.first?.recognizedText, "本地 OCR 结果")
+        XCTAssertEqual(
+            viewModel.itemList.list.first?.qrCodePayloads,
+            ["https://example.com/from-qr"]
+        )
+        XCTAssertEqual(store.appendedItems.last?.recognizedText, "本地 OCR 结果")
+        XCTAssertEqual(recognizer.callCount, 1)
+    }
+
+    func testOnlySmallPendingImagesAreRecognizedAutomatically() {
+        let smallImage = Item(
+            content: "",
+            type: .image,
+            imageData: Data([1])
+        )
+        let largeImage = Item(
+            content: "",
+            type: .image,
+            imageData: Data([2])
+        )
+        let recognizer = StubImageRecognizer(
+            result: ImageRecognitionResult(text: "automatic", qrCodes: [])
+        )
+        let viewModel = ClipboardViewModel(
+            store: MemoryClipboardHistoryStore(
+                initialItems: [smallImage, largeImage]
+            ),
+            imageRecognizer: recognizer,
+            shouldAutomaticallyRecognizeImage: { $0 == smallImage.imageData },
+            startMonitoring: false
+        )
+        let completed = expectation(description: "小图自动识别完成")
+        viewModel.onChange = { items in
+            if items.first(where: { $0.id == smallImage.id })?
+                .imageAnalysisCompleted == true {
+                completed.fulfill()
+            }
+        }
+
+        viewModel.analyzeEligiblePendingImages()
+        wait(for: [completed], timeout: 2)
+
+        XCTAssertEqual(recognizer.callCount, 1)
+        XCTAssertEqual(
+            viewModel.itemList.list.first {
+                $0.id == smallImage.id
+            }?.recognizedText,
+            "automatic"
+        )
+        XCTAssertFalse(
+            viewModel.itemList.list.first {
+                $0.id == largeImage.id
+            }?.imageAnalysisCompleted == true
+        )
+    }
+
+    func testCompletedImageAnalysisIsNotRepeated() {
+        let image = Item(
+            content: "",
+            type: .image,
+            imageData: Data([1]),
+            recognizedText: "already done",
+            imageAnalysisCompleted: true
+        )
+        let recognizer = StubImageRecognizer(
+            result: ImageRecognitionResult(text: "new", qrCodes: [])
+        )
+        let viewModel = ClipboardViewModel(
+            store: MemoryClipboardHistoryStore(initialItems: [image]),
+            imageRecognizer: recognizer,
+            startMonitoring: false
+        )
+
+        XCTAssertFalse(viewModel.analyzeImage(image))
+
+        XCTAssertEqual(recognizer.callCount, 0)
+        XCTAssertEqual(viewModel.itemList.list.first?.recognizedText, "already done")
+    }
+
+    func testCompletedImageCanBeExplicitlyRecognizedAgain() {
+        let image = Item(
+            content: "",
+            type: .image,
+            imageData: Data([1]),
+            recognizedText: "old",
+            imageAnalysisCompleted: true
+        )
+        let recognizer = StubImageRecognizer(
+            result: ImageRecognitionResult(text: "new", qrCodes: [])
+        )
+        let viewModel = ClipboardViewModel(
+            store: MemoryClipboardHistoryStore(initialItems: [image]),
+            imageRecognizer: recognizer,
+            startMonitoring: false
+        )
+        let completed = expectation(description: "重新识别结果写入")
+        viewModel.onChange = { items in
+            if items.first?.recognizedText == "new" {
+                completed.fulfill()
+            }
+        }
+
+        XCTAssertTrue(viewModel.analyzeImage(image, force: true))
+        wait(for: [completed], timeout: 2)
+
+        XCTAssertEqual(recognizer.callCount, 1)
+        XCTAssertEqual(viewModel.itemList.list.first?.recognizedText, "new")
+    }
+}
+
+final class ClipboardPrivacyTests: XCTestCase {
+    func testDefaultsAreSafeAndNonDestructive() {
+        let defaultsName = "ClipboardPrivacyDefaultsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: defaultsName)!
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+
+        let settings = ClipboardPrivacySettingsStore(defaults: defaults).settings
+
+        XCTAssertFalse(settings.isMonitoringPaused)
+        XCTAssertTrue(settings.ignoresSensitiveContent)
+        XCTAssertEqual(settings.retentionPeriod, .forever)
+        XCTAssertTrue(settings.excludedApplications.isEmpty)
+    }
+
+    func testExcludedApplicationsAreStoredAndRemoved() {
+        let defaultsName = "ClipboardPrivacyApplicationsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: defaultsName)!
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let store = ClipboardPrivacySettingsStore(defaults: defaults)
+        let application = ExcludedApplication(
+            bundleIdentifier: "com.example.secret",
+            name: "Secret"
+        )
+
+        store.addExcludedApplication(application)
+        XCTAssertTrue(
+            store.settings.excludes(
+                bundleIdentifier: application.bundleIdentifier
+            )
+        )
+
+        store.removeExcludedApplication(
+            bundleIdentifier: application.bundleIdentifier
+        )
+        XCTAssertFalse(
+            store.settings.excludes(
+                bundleIdentifier: application.bundleIdentifier
+            )
+        )
+    }
+
+    func testSensitiveDetectorRecognizesSecretsButAllowsJWTDecodeInput() {
+        let privateKey = ClipboardSnapshot(
+            content: "-----BEGIN PRIVATE KEY-----\nabc",
+            type: .text,
+            imageData: nil,
+            pasteboardItems: [],
+            containsSensitiveMarker: false
+        )
+        let jwt = ClipboardSnapshot(
+            content: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature",
+            type: .text,
+            imageData: nil,
+            pasteboardItems: [],
+            containsSensitiveMarker: false
+        )
+
+        XCTAssertTrue(SensitiveContentDetector.isSensitive(privateKey))
+        XCTAssertFalse(SensitiveContentDetector.isSensitive(jwt))
+    }
+}
+
+final class ClipboardPayloadTests: XCTestCase {
+    func testOriginalPastePreservesRichRepresentationsAndPlainPasteStripsThem() throws {
+        let source = NSPasteboard(
+            name: NSPasteboard.Name("clib-tests-source-\(UUID().uuidString)")
+        )
+        source.clearContents()
+        let sourceItem = NSPasteboardItem()
+        sourceItem.setString("formatted", forType: .string)
+        let rtf = Data(#"{\rtf1 formatted}"#.utf8)
+        sourceItem.setData(rtf, forType: .rtf)
+        XCTAssertTrue(source.writeObjects([sourceItem]))
+        let snapshot = try XCTUnwrap(ClipboardSnapshot.capture(from: source))
+        let item = snapshot.makeItem(sourceApplication: nil)
+
+        let originalDestination = NSPasteboard(
+            name: NSPasteboard.Name(
+                "clib-tests-original-\(UUID().uuidString)"
+            )
+        )
+        ClipboardPasteboardWriter.write(
+            item,
+            to: originalDestination,
+            mode: .original
+        )
+        XCTAssertEqual(
+            originalDestination.data(forType: .rtf),
+            rtf
+        )
+        XCTAssertEqual(
+            originalDestination.string(forType: .string),
+            "formatted"
+        )
+
+        let plainDestination = NSPasteboard(
+            name: NSPasteboard.Name("clib-tests-plain-\(UUID().uuidString)")
+        )
+        ClipboardPasteboardWriter.write(
+            item,
+            to: plainDestination,
+            mode: .plainText
+        )
+        XCTAssertEqual(
+            plainDestination.string(forType: .string),
+            "formatted"
+        )
+        XCTAssertNil(plainDestination.data(forType: .rtf))
+    }
+}
+
+final class ClipboardSearchQueryTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 2_000_000_000)
+
+    func testSearchMatchesContentSourceTagsAndStructuredTokens() {
+        let item = Item(
+            content: "Swift clipboard",
+            type: .code,
+            createdAt: now.addingTimeInterval(-600),
+            tags: ["工作"],
+            sourceAppBundleIdentifier: "com.apple.dt.Xcode",
+            sourceAppName: "Xcode"
+        )
+
+        XCTAssertTrue(ClipboardSearchQuery("clipboard").matches(item, now: now))
+        XCTAssertTrue(ClipboardSearchQuery("Xcode").matches(item, now: now))
+        XCTAssertTrue(
+            ClipboardSearchQuery("app:xcode tag:工作 type:代码 date:1h")
+                .matches(item, now: now)
+        )
+        XCTAssertFalse(
+            ClipboardSearchQuery("app:Safari").matches(item, now: now)
+        )
+    }
+
+    func testSearchMatchesOCRTextAndQRCodePayload() {
+        let item = Item(
+            content: "",
+            type: .image,
+            imageData: Data([1]),
+            recognizedText: "发票编号 ABC-2026",
+            qrCodePayloads: ["https://example.com/order/9527"],
+            imageAnalysisCompleted: true
+        )
+
+        XCTAssertTrue(ClipboardSearchQuery("ABC-2026").matches(item, now: now))
+        XCTAssertTrue(ClipboardSearchQuery("order/9527").matches(item, now: now))
+    }
+}
+
+final class VisionImageRecognizerTests: XCTestCase {
+    func testAutomaticRecognitionPolicyUsesPixelDimensions() throws {
+        let color = CIColor(red: 1, green: 1, blue: 1)
+        let small = try pngData(
+            from: CIImage(color: color).cropped(
+                to: CGRect(x: 0, y: 0, width: 800, height: 600)
+            )
+        )
+        let tooWide = try pngData(
+            from: CIImage(color: color).cropped(
+                to: CGRect(x: 0, y: 0, width: 1_700, height: 200)
+            )
+        )
+        let tooManyPixels = try pngData(
+            from: CIImage(color: color).cropped(
+                to: CGRect(x: 0, y: 0, width: 1_500, height: 1_500)
+            )
+        )
+
+        XCTAssertTrue(
+            ImageAutoRecognitionPolicy.shouldRecognize(imageData: small)
+        )
+        XCTAssertFalse(
+            ImageAutoRecognitionPolicy.shouldRecognize(imageData: tooWide)
+        )
+        XCTAssertFalse(
+            ImageAutoRecognitionPolicy.shouldRecognize(
+                imageData: tooManyPixels
+            )
+        )
+    }
+
+    func testRecognizesGeneratedQRCodeLocally() throws {
+        let payload = "https://example.com/clib-qr"
+        let filter = try XCTUnwrap(CIFilter(name: "CIQRCodeGenerator"))
+        filter.setValue(Data(payload.utf8), forKey: "inputMessage")
+        filter.setValue("H", forKey: "inputCorrectionLevel")
+        let output = try XCTUnwrap(filter.outputImage)
+            .transformed(by: CGAffineTransform(scaleX: 12, y: 12))
+        let imageData = try pngData(from: output)
+        let completed = expectation(description: "二维码识别完成")
+        var result: ImageRecognitionResult?
+
+        VisionImageRecognizer().recognize(imageData: imageData) {
+            result = $0
+            completed.fulfill()
+        }
+        wait(for: [completed], timeout: 10)
+
+        XCTAssertEqual(result?.qrCodes, [payload])
+    }
+
+    func testRecognizesRenderedTextLocally() throws {
+        let image = NSImage(size: NSSize(width: 900, height: 180))
+        image.lockFocus()
+        NSColor.white.setFill()
+        NSBezierPath(rect: NSRect(x: 0, y: 0, width: 900, height: 180)).fill()
+        ("HELLO CLIB 2026" as NSString).draw(
+            at: NSPoint(x: 28, y: 48),
+            withAttributes: [
+                .font: NSFont.systemFont(ofSize: 72, weight: .bold),
+                .foregroundColor: NSColor.black
+            ]
+        )
+        image.unlockFocus()
+        let imageData = try XCTUnwrap(image.tiffRepresentation)
+        let completed = expectation(description: "OCR 识别完成")
+        var result: ImageRecognitionResult?
+
+        VisionImageRecognizer().recognize(imageData: imageData) {
+            result = $0
+            completed.fulfill()
+        }
+        wait(for: [completed], timeout: 10)
+
+        XCTAssertTrue(result?.text.uppercased().contains("CLIB") == true)
+    }
+
+    private func pngData(from image: CIImage) throws -> Data {
+        let context = CIContext(options: [.useSoftwareRenderer: true])
+        let cgImage = try XCTUnwrap(
+            context.createCGImage(image, from: image.extent)
+        )
+        let representation = NSBitmapImageRep(cgImage: cgImage)
+        return try XCTUnwrap(
+            representation.representation(using: .png, properties: [:])
+        )
     }
 }
 
@@ -310,6 +732,90 @@ final class TextTransformerTests: XCTestCase {
 }
 
 final class SearchDestinationResolverTests: XCTestCase {
+    func testOpenURLSourcesMergeContentAndQRCodeLinks() {
+        let item = Item(
+            content: " https://example.com/content ",
+            type: .image,
+            imageData: Data([1]),
+            qrCodePayloads: [
+                "not a link",
+                "https://example.com/qr",
+                "https://example.com/content"
+            ],
+            imageAnalysisCompleted: true
+        )
+
+        XCTAssertEqual(
+            SearchDestinationResolver.webLinkSources(for: item),
+            [
+                "https://example.com/content",
+                "https://example.com/qr"
+            ]
+        )
+    }
+
+    func testQRCodeOptionsRequireImageWithRecognizedPayload() {
+        let textItem = Item(
+            content: "text",
+            type: .text,
+            qrCodePayloads: ["https://example.com/not-valid-for-text"],
+            imageAnalysisCompleted: true
+        )
+        let imageWithoutQRCode = Item(
+            content: "",
+            type: .image,
+            imageData: Data([1]),
+            recognizedText: "OCR only",
+            imageAnalysisCompleted: true
+        )
+        let imageWithQRCode = Item(
+            content: "",
+            type: .image,
+            imageData: Data([2]),
+            qrCodePayloads: ["qr payload"],
+            imageAnalysisCompleted: true
+        )
+
+        XCTAssertTrue(
+            QRCodeContentResolver.payloads(for: textItem).isEmpty
+        )
+        XCTAssertTrue(
+            QRCodeContentResolver.payloads(for: imageWithoutQRCode).isEmpty
+        )
+        XCTAssertEqual(
+            QRCodeContentResolver.payloads(for: imageWithQRCode),
+            ["qr payload"]
+        )
+    }
+
+    func testOpenURLIgnoresQRCodePayloadsOnNonImageItems() {
+        let item = Item(
+            content: "plain text",
+            type: .text,
+            qrCodePayloads: ["https://example.com/ignored"],
+            imageAnalysisCompleted: true
+        )
+
+        XCTAssertTrue(
+            SearchDestinationResolver.webLinkSources(for: item).isEmpty
+        )
+    }
+
+    func testOpenURLSourcesCanComeOnlyFromQRCode() {
+        let item = Item(
+            content: "",
+            type: .image,
+            imageData: Data([1]),
+            qrCodePayloads: ["https://example.com/qr-only"],
+            imageAnalysisCompleted: true
+        )
+
+        XCTAssertEqual(
+            SearchDestinationResolver.webLinkSources(for: item),
+            ["https://example.com/qr-only"]
+        )
+    }
+
     func testWebURLAcceptsHTTPAndHTTPSLinks() {
         XCTAssertEqual(
             SearchDestinationResolver.webURL(for: " https://example.com/path?q=1 ")?
@@ -393,5 +899,22 @@ private final class MemoryClipboardHistoryStore: ClipboardHistoryStore {
 
     func flush() throws {
         flushCount += 1
+    }
+}
+
+private final class StubImageRecognizer: ImageRecognizing {
+    private let result: ImageRecognitionResult
+    private(set) var callCount = 0
+
+    init(result: ImageRecognitionResult) {
+        self.result = result
+    }
+
+    func recognize(
+        imageData: Data,
+        completion: @escaping (ImageRecognitionResult) -> Void
+    ) {
+        callCount += 1
+        completion(result)
     }
 }

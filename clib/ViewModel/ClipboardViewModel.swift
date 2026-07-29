@@ -96,15 +96,35 @@ final class ClipboardViewModel {
     var onChange: (([Item]) -> Void)?
 
     private let store: ClipboardHistoryStore
+    private let privacySettingsStore: ClipboardPrivacySettingsStore
+    private let sourceApplicationProvider: () -> NSRunningApplication?
+    private let imageRecognizer: ImageRecognizing
+    private let shouldAutomaticallyRecognizeImage: (Data) -> Bool
     private var clipboardTimer: Timer?
     private var terminationObserver: NSObjectProtocol?
+    private var settingsObserver: NSObjectProtocol?
     private var lastPasteboardChangeCount = -1
+    private var lastRetentionCleanupDate = Date.distantPast
+    private var imageAnalysisInProgress = Set<Item.ID>()
 
     init(
         store: ClipboardHistoryStore = LocalClipboardHistoryStore(),
+        privacySettingsStore: ClipboardPrivacySettingsStore =
+            ClipboardPrivacySettingsStore(),
+        sourceApplicationProvider: @escaping () -> NSRunningApplication? = {
+            NSWorkspace.shared.frontmostApplication
+        },
+        imageRecognizer: ImageRecognizing = VisionImageRecognizer(),
+        shouldAutomaticallyRecognizeImage: @escaping (Data) -> Bool =
+            ImageAutoRecognitionPolicy.shouldRecognize,
         startMonitoring: Bool = true
     ) {
         self.store = store
+        self.privacySettingsStore = privacySettingsStore
+        self.sourceApplicationProvider = sourceApplicationProvider
+        self.imageRecognizer = imageRecognizer
+        self.shouldAutomaticallyRecognizeImage =
+            shouldAutomaticallyRecognizeImage
 
         do {
             itemList = ItemList(list: try store.load())
@@ -112,6 +132,7 @@ final class ClipboardViewModel {
             itemList = ItemList()
             print("读取剪贴板历史失败：\(error)")
         }
+        removeExpiredItems()
 
         if startMonitoring {
             updateClipboardContent()
@@ -129,6 +150,15 @@ final class ClipboardViewModel {
             ) { [weak self] _ in
                 self?.flushStore()
             }
+
+            settingsObserver = NotificationCenter.default.addObserver(
+                forName: .clipboardPrivacySettingsDidChange,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.privacySettingsChanged()
+            }
+            analyzeEligiblePendingImages()
         }
     }
 
@@ -137,58 +167,62 @@ final class ClipboardViewModel {
         if let terminationObserver {
             NotificationCenter.default.removeObserver(terminationObserver)
         }
+        if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
+        }
         flushStore()
     }
 
     private func updateClipboardContent() {
+        if Date().timeIntervalSince(lastRetentionCleanupDate) >= 3_600 {
+            removeExpiredItems()
+        }
         let pasteboard = NSPasteboard.general
         guard pasteboard.changeCount != lastPasteboardChangeCount else {
             return
         }
         lastPasteboardChangeCount = pasteboard.changeCount
 
-        let item: Item
-        if let imageType = pasteboard.availableType(from: [.png, .tiff]),
-           let imageData = pasteboard.data(forType: imageType) {
-            let candidate = Item(content: "", type: .image, imageData: imageData)
-            if let existingItem = itemList.list.first(where: {
-                $0.hasSamePayload(as: candidate)
-            }) {
-                guard itemList.peek()?.id != existingItem.id else { return }
-                promote(existingItem)
-                return
-            }
-            item = itemList.push(imageData: imageData)
-        } else if let content = pasteboard.string(forType: .string),
-                  !content.isEmpty {
-            let type: ItemType = isWebURL(content) ? .url : .text
-            let candidate = Item(content: content, type: type)
-            if let existingItem = itemList.list.first(where: {
-                $0.hasSamePayload(as: candidate)
-            }) {
-                guard itemList.peek()?.id != existingItem.id else { return }
-                promote(existingItem)
-                return
-            }
-            item = itemList.push(content: content, type: type)
-        } else {
+        let settings = privacySettingsStore.settings
+        guard !settings.isMonitoringPaused else { return }
+
+        let sourceApplication = sourceApplicationProvider()
+        guard !settings.excludes(
+            bundleIdentifier: sourceApplication?.bundleIdentifier
+        ),
+        let snapshot = ClipboardSnapshot.capture(from: pasteboard),
+        !(settings.ignoresSensitiveContent &&
+            SensitiveContentDetector.isSensitive(snapshot)) else {
             return
         }
+        let candidate = snapshot.makeItem(sourceApplication: sourceApplication)
+        if let existingItem = itemList.list.first(where: {
+            $0.hasSamePayload(as: candidate)
+        }) {
+            promote(existingItem, recapturedAs: candidate)
+            return
+        }
+        let item = itemList.push(candidate)
 
         do {
             try store.append(item)
         } catch {
             print("保存剪贴板内容失败：\(error)")
         }
+        analyzeImageAutomaticallyIfEligible(item)
     }
 
     func promote(_ item: Item) {
+        promote(item, recapturedAs: nil)
+    }
+
+    private func promote(_ item: Item, recapturedAs candidate: Item?) {
         let matchingItems = itemList.list.filter {
             $0.hasSamePayload(as: item)
         }
         guard !matchingItems.isEmpty else { return }
 
-        let promotedItem = item.promoted()
+        let promotedItem = candidate.map(item.recaptured(from:)) ?? item.promoted()
         itemList.list.removeAll { candidate in
             candidate.hasSamePayload(as: item)
         }
@@ -201,6 +235,9 @@ final class ClipboardViewModel {
             try store.append(promotedItem)
         } catch {
             print("更新剪贴板条目顺序失败：\(error)")
+        }
+        if candidate != nil {
+            analyzeImageAutomaticallyIfEligible(promotedItem)
         }
     }
 
@@ -225,6 +262,10 @@ final class ClipboardViewModel {
         } catch {
             print("清空剪贴板历史失败：\(error)")
         }
+    }
+
+    func notePasteboardWrite() {
+        lastPasteboardChangeCount = NSPasteboard.general.changeCount
     }
 
     private func isWebURL(_ content: String) -> Bool {
@@ -267,6 +308,89 @@ final class ClipboardViewModel {
             try store.append(updatedItem)
         } catch {
             print("保存条目标签失败：\(error)")
+        }
+    }
+
+    func removeExpiredItems(relativeTo date: Date = Date()) {
+        lastRetentionCleanupDate = date
+        guard let cutoff = privacySettingsStore.settings.retentionPeriod
+            .cutoffDate(relativeTo: date) else {
+            return
+        }
+        let expiredItems = itemList.list.filter {
+            $0.createdAt < cutoff && !$0.tags.contains(Item.favoriteTag)
+        }
+        guard !expiredItems.isEmpty else { return }
+        let expiredIDs = Set(expiredItems.map(\.id))
+        itemList.list.removeAll { expiredIDs.contains($0.id) }
+        do {
+            for item in expiredItems {
+                try store.append(item.tombstone())
+            }
+        } catch {
+            print("清理过期剪贴板记录失败：\(error)")
+        }
+    }
+
+    private func privacySettingsChanged() {
+        // Content copied while monitoring was paused or settings were being
+        // changed must not be backfilled when recording resumes.
+        notePasteboardWrite()
+        removeExpiredItems()
+    }
+
+    @discardableResult
+    func analyzeImage(_ item: Item, force: Bool = false) -> Bool {
+        guard item.type == .image,
+              force || !item.imageAnalysisCompleted,
+              let imageData = item.imageData,
+              imageAnalysisInProgress.insert(item.id).inserted else {
+            return false
+        }
+        imageRecognizer.recognize(imageData: imageData) { [weak self] result in
+            DispatchQueue.main.async {
+                self?.applyImageRecognition(
+                    result,
+                    to: item.id,
+                    analyzedData: imageData
+                )
+            }
+        }
+        return true
+    }
+
+    func analyzeEligiblePendingImages() {
+        itemList.list.forEach(analyzeImageAutomaticallyIfEligible)
+    }
+
+    func isAnalyzingImage(_ item: Item) -> Bool {
+        imageAnalysisInProgress.contains(item.id)
+    }
+
+    private func analyzeImageAutomaticallyIfEligible(_ item: Item) {
+        guard let imageData = item.imageData,
+              shouldAutomaticallyRecognizeImage(imageData) else {
+            return
+        }
+        analyzeImage(item)
+    }
+
+    private func applyImageRecognition(
+        _ result: ImageRecognitionResult,
+        to itemID: Item.ID,
+        analyzedData: Data
+    ) {
+        imageAnalysisInProgress.remove(itemID)
+        guard let item = itemList.list.first(where: { $0.id == itemID }),
+              item.imageData == analyzedData else {
+            return
+        }
+        let updatedItem = item.replacingImageAnalysis(with: result)
+        itemList.replace(updatedItem)
+        do {
+            try store.append(updatedItem)
+        } catch {
+            print("保存图片识别结果失败：\(error)")
         }
     }
 

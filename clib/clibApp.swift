@@ -28,12 +28,12 @@ enum AppTheme: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .mistBlue: "雾霭蓝"
-        case .mint: "清新薄荷"
-        case .sakura: "柔雾樱花"
-        case .lavender: "暮光薰衣草"
-        case .amber: "暖调琥珀"
-        case .graphite: "高级石墨"
+        case .mistBlue: L10n.text("theme.mist_blue")
+        case .mint: L10n.text("theme.mint")
+        case .sakura: L10n.text("theme.sakura")
+        case .lavender: L10n.text("theme.lavender")
+        case .amber: L10n.text("theme.amber")
+        case .graphite: L10n.text("theme.graphite")
         }
     }
 
@@ -63,7 +63,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var eventMonitor: Any?
     private var statusItem: NSStatusItem?
     private weak var themeMenu: NSMenu?
+    private weak var pauseRecordingMenuItem: NSMenuItem?
     private var previouslyActiveApplication: NSRunningApplication?
+    private let privacySettingsStore = ClipboardPrivacySettingsStore()
+    private var privacySettingsObserver: NSObjectProtocol?
     private(set) var isPinned = false
 
     static func main() {
@@ -79,6 +82,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         checkAccessibilityPermissions()
         setupGlobalHotkeyListener()
+        privacySettingsObserver = NotificationCenter.default.addObserver(
+            forName: .clipboardPrivacySettingsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updatePrivacyIndicators()
+        }
 
         let controller = ClipboardWindowController(appDelegate: self)
         windowController = controller
@@ -92,8 +102,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let applicationItem = NSMenuItem()
         mainMenu.addItem(applicationItem)
         let applicationMenu = NSMenu()
-        let themeItem = NSMenuItem(title: "主题", action: nil, keyEquivalent: "")
-        let themes = NSMenu(title: "主题")
+        let themeItem = NSMenuItem(
+            title: L10n.text("theme.menu"),
+            action: nil,
+            keyEquivalent: ""
+        )
+        let themes = NSMenu(title: L10n.text("theme.menu"))
         for theme in AppTheme.allCases {
             let item = NSMenuItem(
                 title: theme.title,
@@ -110,13 +124,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applicationMenu.addItem(themeItem)
         applicationMenu.addItem(.separator())
         applicationMenu.addItem(
-            withTitle: "清空剪贴板记录…",
+            withTitle: L10n.text("menu.privacy_history_ellipsis"),
+            action: #selector(showPrivacySettings),
+            keyEquivalent: ","
+        )
+        let pauseItem = applicationMenu.addItem(
+            withTitle: L10n.text("menu.pause_recording"),
+            action: #selector(toggleClipboardMonitoring),
+            keyEquivalent: ""
+        )
+        pauseRecordingMenuItem = pauseItem
+        applicationMenu.addItem(.separator())
+        applicationMenu.addItem(
+            withTitle: L10n.text("menu.clear_history_ellipsis"),
             action: #selector(confirmClearHistory),
             keyEquivalent: ""
         )
         applicationMenu.addItem(.separator())
         applicationMenu.addItem(
-            withTitle: "退出 clib",
+            withTitle: L10n.text("menu.quit"),
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
         )
@@ -124,20 +150,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let clipboardItem = NSMenuItem()
         mainMenu.addItem(clipboardItem)
-        let clipboardMenu = NSMenu(title: "剪贴板")
+        let clipboardMenu = NSMenu(title: L10n.text("menu.clipboard"))
         clipboardMenu.addItem(
-            withTitle: "搜索",
+            withTitle: L10n.text("menu.search"),
             action: #selector(focusSearch),
             keyEquivalent: "f"
         )
         clipboardMenu.addItem(
-            withTitle: "筛选类型",
+            withTitle: L10n.text("menu.filter_type"),
             action: #selector(openFilter),
             keyEquivalent: "d"
         )
+        let favoriteItem = clipboardMenu.addItem(
+            withTitle: L10n.text("menu.toggle_favorite"),
+            action: #selector(toggleFavoriteOfSelectedItem),
+            keyEquivalent: "b"
+        )
+        favoriteItem.target = self
         clipboardItem.submenu = clipboardMenu
         NSApp.mainMenu = mainMenu
         updateThemeMenuState()
+        updatePrivacyIndicators()
     }
 
     @objc private func selectTheme(_ sender: NSMenuItem) {
@@ -158,15 +191,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func confirmClearHistory() {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "清空所有剪贴板记录？"
-        alert.informativeText = "此操作会删除全部历史记录，且无法撤销。"
-        alert.addButton(withTitle: "清空")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = L10n.text("clear.title")
+        alert.informativeText = L10n.text("clear.message")
+        alert.addButton(withTitle: L10n.text("clear.action"))
+        alert.addButton(withTitle: L10n.text("common.cancel"))
         alert.buttons.first?.hasDestructiveAction = true
         alert.buttons[1].keyEquivalent = "\u{1b}"
 
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         windowController?.contentController.clearHistory()
+    }
+
+    @objc private func showPrivacySettings() {
+        presentMainWindow()
+        windowController?.contentController.showPrivacySettings()
+    }
+
+    @objc private func toggleClipboardMonitoring() {
+        let paused = privacySettingsStore.settings.isMonitoringPaused
+        privacySettingsStore.setMonitoringPaused(!paused)
+    }
+
+    private func updatePrivacyIndicators() {
+        let paused = privacySettingsStore.settings.isMonitoringPaused
+        pauseRecordingMenuItem?.state = paused ? .on : .off
+        pauseRecordingMenuItem?.title = paused
+            ? L10n.text("menu.resume_recording")
+            : L10n.text("menu.pause_recording")
+        let statusDescription = paused
+            ? L10n.text("status.paused")
+            : L10n.text("status.open")
+        if let button = statusItem?.button {
+            button.image = NSImage(
+                systemSymbolName: paused ? "clipboard.fill" : "clipboard",
+                accessibilityDescription: statusDescription
+            )
+            button.image?.isTemplate = true
+            button.toolTip = statusDescription
+        }
     }
 
     private func setupStatusItem() {
@@ -176,14 +238,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let button = item.button {
             button.image = NSImage(
                 systemSymbolName: "clipboard",
-                accessibilityDescription: "打开 clib"
+                accessibilityDescription: L10n.text("status.open")
             )
             button.image?.isTemplate = true
-            button.toolTip = "打开 clib"
+            button.toolTip = L10n.text("status.open")
             button.target = self
             button.action = #selector(statusItemClicked)
         }
         statusItem = item
+        updatePrivacyIndicators()
     }
 
     @objc private func statusItemClicked() {
@@ -201,6 +264,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openFilter() {
         NotificationCenter.default.post(name: .openItemTypeFilterMenu, object: nil)
+    }
+
+    @objc private func toggleFavoriteOfSelectedItem() {
+        windowController?.contentController.toggleFavoriteOfSelectedItem()
     }
 
     private func checkAccessibilityPermissions() {
@@ -251,16 +318,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowController?.contentController.updatePinState(isPinned)
     }
 
-    func pasteIntoPreviouslyActiveApplication(_ item: Item) {
+    func pasteIntoPreviouslyActiveApplication(
+        _ item: Item,
+        mode: ClipboardPasteMode = .original
+    ) {
         let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        if item.type == .image,
-           let data = item.imageData,
-           let image = NSImage(data: data) {
-            pasteboard.writeObjects([image])
-        } else {
-            pasteboard.setString(item.content, forType: .string)
-        }
+        ClipboardPasteboardWriter.write(item, to: pasteboard, mode: mode)
+        windowController?.contentController.notePasteboardWrite()
 
         guard AXIsProcessTrusted(), let target = previouslyActiveApplication else {
             NSSound.beep()
@@ -289,6 +353,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+        if let privacySettingsObserver {
+            NotificationCenter.default.removeObserver(privacySettingsObserver)
+        }
     }
 }
 

@@ -7,6 +7,15 @@
 
 import Foundation
 
+struct ClipboardRepresentation: Codable, Equatable {
+    let typeIdentifier: String
+    let data: Data
+}
+
+struct ClipboardPayloadItem: Codable, Equatable {
+    let representations: [ClipboardRepresentation]
+}
+
 struct Item: Identifiable, Equatable, Codable {
     static let favoriteTag = "收藏"
 
@@ -17,6 +26,12 @@ struct Item: Identifiable, Equatable, Codable {
     let createdAt: Date
     let deletedAt: Date?
     let tags: [String]
+    let pasteboardItems: [ClipboardPayloadItem]
+    let sourceAppBundleIdentifier: String?
+    let sourceAppName: String?
+    let recognizedText: String
+    let qrCodePayloads: [String]
+    let imageAnalysisCompleted: Bool
     
     init(
         id: UUID = UUID(),
@@ -25,7 +40,13 @@ struct Item: Identifiable, Equatable, Codable {
         imageData: Data? = nil,
         createdAt: Date = Date(),
         deletedAt: Date? = nil,
-        tags: [String] = []
+        tags: [String] = [],
+        pasteboardItems: [ClipboardPayloadItem] = [],
+        sourceAppBundleIdentifier: String? = nil,
+        sourceAppName: String? = nil,
+        recognizedText: String = "",
+        qrCodePayloads: [String] = [],
+        imageAnalysisCompleted: Bool = false
     ) {
         self.id = id
         self.content = content
@@ -34,6 +55,12 @@ struct Item: Identifiable, Equatable, Codable {
         self.createdAt = createdAt
         self.deletedAt = deletedAt
         self.tags = Self.normalized(tags)
+        self.pasteboardItems = pasteboardItems
+        self.sourceAppBundleIdentifier = sourceAppBundleIdentifier
+        self.sourceAppName = sourceAppName
+        self.recognizedText = recognizedText
+        self.qrCodePayloads = Self.normalized(qrCodePayloads)
+        self.imageAnalysisCompleted = imageAnalysisCompleted
     }
     
     static func == (lhs: Item, rhs: Item) -> Bool {
@@ -50,7 +77,13 @@ struct Item: Identifiable, Equatable, Codable {
             imageData: imageData,
             createdAt: createdAt,
             deletedAt: deletedAt,
-            tags: tags
+            tags: tags,
+            pasteboardItems: Self.plainTextPayload(content),
+            sourceAppBundleIdentifier: sourceAppBundleIdentifier,
+            sourceAppName: sourceAppName,
+            recognizedText: recognizedText,
+            qrCodePayloads: qrCodePayloads,
+            imageAnalysisCompleted: imageAnalysisCompleted
         )
     }
 
@@ -61,7 +94,37 @@ struct Item: Identifiable, Equatable, Codable {
             type: type,
             imageData: imageData,
             createdAt: Date(),
-            tags: tags
+            tags: tags,
+            pasteboardItems: pasteboardItems,
+            sourceAppBundleIdentifier: sourceAppBundleIdentifier,
+            sourceAppName: sourceAppName,
+            recognizedText: recognizedText,
+            qrCodePayloads: qrCodePayloads,
+            imageAnalysisCompleted: imageAnalysisCompleted
+        )
+    }
+
+    func recaptured(from candidate: Item) -> Item {
+        let canReuseAnalysis =
+            imageData == candidate.imageData && imageAnalysisCompleted
+        return Item(
+            id: id,
+            content: candidate.content,
+            type: candidate.type,
+            imageData: candidate.imageData,
+            createdAt: Date(),
+            tags: tags,
+            pasteboardItems: candidate.pasteboardItems,
+            sourceAppBundleIdentifier: candidate.sourceAppBundleIdentifier,
+            sourceAppName: candidate.sourceAppName,
+            recognizedText: canReuseAnalysis
+                ? recognizedText
+                : candidate.recognizedText,
+            qrCodePayloads: canReuseAnalysis
+                ? qrCodePayloads
+                : candidate.qrCodePayloads,
+            imageAnalysisCompleted: canReuseAnalysis ||
+                candidate.imageAnalysisCompleted
         )
     }
 
@@ -73,7 +136,31 @@ struct Item: Identifiable, Equatable, Codable {
             imageData: imageData,
             createdAt: createdAt,
             deletedAt: deletedAt,
-            tags: tags
+            tags: tags,
+            pasteboardItems: pasteboardItems,
+            sourceAppBundleIdentifier: sourceAppBundleIdentifier,
+            sourceAppName: sourceAppName,
+            recognizedText: recognizedText,
+            qrCodePayloads: qrCodePayloads,
+            imageAnalysisCompleted: imageAnalysisCompleted
+        )
+    }
+
+    func replacingImageAnalysis(with result: ImageRecognitionResult) -> Item {
+        Item(
+            id: id,
+            content: content,
+            type: type,
+            imageData: imageData,
+            createdAt: createdAt,
+            deletedAt: deletedAt,
+            tags: tags,
+            pasteboardItems: pasteboardItems,
+            sourceAppBundleIdentifier: sourceAppBundleIdentifier,
+            sourceAppName: sourceAppName,
+            recognizedText: result.text,
+            qrCodePayloads: result.qrCodes,
+            imageAnalysisCompleted: true
         )
     }
 
@@ -97,7 +184,9 @@ struct Item: Identifiable, Equatable, Codable {
             imageData: nil,
             createdAt: createdAt,
             deletedAt: Date(),
-            tags: tags
+            tags: tags,
+            sourceAppBundleIdentifier: sourceAppBundleIdentifier,
+            sourceAppName: sourceAppName
         )
     }
 
@@ -119,6 +208,8 @@ struct Item: Identifiable, Equatable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, content, type, imageData, createdAt, deletedAt, tags
+        case pasteboardItems, sourceAppBundleIdentifier, sourceAppName
+        case recognizedText, qrCodePayloads, imageAnalysisCompleted
     }
 
     init(from decoder: Decoder) throws {
@@ -130,8 +221,46 @@ struct Item: Identifiable, Equatable, Codable {
             imageData: try container.decodeIfPresent(Data.self, forKey: .imageData),
             createdAt: try container.decode(Date.self, forKey: .createdAt),
             deletedAt: try container.decodeIfPresent(Date.self, forKey: .deletedAt),
-            tags: try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+            tags: try container.decodeIfPresent([String].self, forKey: .tags) ?? [],
+            pasteboardItems: try container.decodeIfPresent(
+                [ClipboardPayloadItem].self,
+                forKey: .pasteboardItems
+            ) ?? [],
+            sourceAppBundleIdentifier: try container.decodeIfPresent(
+                String.self,
+                forKey: .sourceAppBundleIdentifier
+            ),
+            sourceAppName: try container.decodeIfPresent(
+                String.self,
+                forKey: .sourceAppName
+            ),
+            recognizedText: try container.decodeIfPresent(
+                String.self,
+                forKey: .recognizedText
+            ) ?? "",
+            qrCodePayloads: try container.decodeIfPresent(
+                [String].self,
+                forKey: .qrCodePayloads
+            ) ?? [],
+            imageAnalysisCompleted: try container.decodeIfPresent(
+                Bool.self,
+                forKey: .imageAnalysisCompleted
+            ) ?? false
         )
+    }
+
+    private static func plainTextPayload(_ content: String) -> [ClipboardPayloadItem] {
+        guard let data = content.data(using: .utf8) else { return [] }
+        return [
+            ClipboardPayloadItem(
+                representations: [
+                    ClipboardRepresentation(
+                        typeIdentifier: "public.utf8-plain-text",
+                        data: data
+                    )
+                ]
+            )
+        ]
     }
 
     private static func normalized(_ tags: [String]) -> [String] {

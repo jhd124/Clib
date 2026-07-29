@@ -1,0 +1,110 @@
+"common.add" = "Ajouter";
+"common.cancel" = "Annuler";
+"common.close" = "Fermer";
+"common.done" = "Terminé";
+"common.ok" = "OK";
+"common.remove" = "Supprimer";
+"common.save" = "Enregistrer";
+
+"item_type.all" = "Tout";
+"item_type.text" = "Texte";
+"item_type.image" = "Images";
+"item_type.url" = "URL";
+"item_type.code" = "Code";
+"item_type.video" = "Vidéos";
+"item_type.audio" = "Audio";
+
+"time.last_hour" = "Dernière heure";
+"time.today" = "Aujourd’hui";
+"time.last_7_days" = "7 derniers jours";
+"time.last_30_days" = "30 derniers jours";
+
+"accessibility.drag_window" = "Déplacer la fenêtre";
+"accessibility.pin" = "Toujours au premier plan";
+"accessibility.unpin" = "Désactiver le premier plan";
+"clipboard.empty" = "Aucun historique du presse-papiers";
+"search.placeholder" = "Rechercher dans le contenu, la source ou les étiquettes";
+"filter.source_format" = "Source : %@";
+"filter.tag_format" = "Étiquette : %@";
+"favorite" = "Favoris";
+
+"image.qr_more_format" = " (%d de plus)";
+"image.qr_summary_format" = "Code QR : %@%@";
+"image.ocr_summary_format" = "OCR : %@";
+
+"context.paste_plain_text" = "Coller en texte brut";
+"context.search" = "Rechercher";
+"context.open_url" = "Ouvrir l’URL";
+"context.recognize_image" = "Reconnaître le contenu de l’image";
+"context.recognizing_image" = "Reconnaissance de l’image…";
+"context.recognize_image_again" = "Reconnaître à nouveau l’image";
+"context.copy_ocr" = "Copier le texte de l’image";
+"context.copy_qr" = "Copier le contenu du code QR";
+"context.run_command" = "Exécuter la commande";
+"context.decode_format" = "Décoder / Formater";
+"context.edit" = "Modifier le contenu";
+"context.favorite" = "Ajouter aux favoris";
+"context.unfavorite" = "Retirer des favoris";
+"context.tags" = "Étiquettes";
+"context.delete" = "Supprimer";
+
+"command.launch_error" = "Impossible d’exécuter la commande";
+"command.finished_format" = "[clib] Commande terminée avec le code de sortie : %d";
+
+"tag.new_ellipsis" = "Nouvelle étiquette…";
+"tag.new" = "Nouvelle étiquette";
+"tag.prompt" = "Saisissez le nom de l’étiquette à ajouter à cet élément.";
+"tag.placeholder" = "Nom de l’étiquette";
+
+"privacy.title" = "Confidentialité et historique";
+"privacy.pause" = "Suspendre l’enregistrement du presse-papiers";
+"privacy.ignore_sensitive" = "Ignorer les contenus sensibles (mots de passe, jetons et clés privées)";
+"privacy.description" = "Le contenu exclu ou identifié comme sensible n’est jamais enregistré dans l’historique. Le contenu copié pendant la pause n’est pas récupéré ensuite. Les favoris n’expirent jamais automatiquement.";
+"privacy.retention" = "Conservation de l’historique";
+"privacy.excluded_apps" = "Ne pas enregistrer ces applications";
+"privacy.excluded_apps_hint" = "Par exemple, les gestionnaires de mots de passe, les applications bancaires ou contenant des informations privées";
+"privacy.application" = "Application";
+"privacy.add_app_ellipsis" = "Ajouter une application…";
+"privacy.choose_apps" = "Choisir les applications à exclure de l’enregistrement du presse-papiers";
+"privacy.exclude" = "Exclure";
+
+"retention.forever" = "Conserver indéfiniment";
+"retention.7_days" = "Conserver 7 jours";
+"retention.30_days" = "Conserver 30 jours";
+"retention.90_days" = "Conserver 90 jours";
+
+"transform.base64_encode" = "Encoder en Base64";
+"transform.base64_decode" = "Décoder le Base64";
+"transform.jwt_decode" = "Décoder le JWT";
+"transform.format_json" = "Formater le JSON";
+"transform.compress_json" = "Compresser le JSON";
+"transform.parse_url" = "Analyser récursivement les paramètres d’URL";
+"transform.invalid_base64" = "Le contenu n’est pas une chaîne Base64 UTF-8 valide.";
+"transform.invalid_jwt" = "Le contenu n’est pas un JWT valide. La signature n’est pas vérifiée.";
+"transform.run" = "Exécuter";
+"transform.copy_result" = "Copier le résultat";
+
+"theme.menu" = "Thème";
+"theme.mist_blue" = "Bleu brume";
+"theme.mint" = "Menthe fraîche";
+"theme.sakura" = "Sakura doux";
+"theme.lavender" = "Lavande crépusculaire";
+"theme.amber" = "Ambre chaud";
+"theme.graphite" = "Graphite élégant";
+
+"menu.privacy_history_ellipsis" = "Confidentialité et historique…";
+"menu.pause_recording" = "Suspendre l’enregistrement";
+"menu.resume_recording" = "Reprendre l’enregistrement";
+"menu.clear_history_ellipsis" = "Effacer l’historique du presse-papiers…";
+"menu.quit" = "Quitter clib";
+"menu.clipboard" = "Presse-papiers";
+"menu.search" = "Rechercher";
+"menu.filter_type" = "Filtrer par type";
+"menu.toggle_favorite" = "Ajouter ou retirer des favoris";
+
+"clear.title" = "Effacer tout l’historique du presse-papiers ?";
+"clear.message" = "Cette action supprime tout l’historique et ne peut pas être annulée.";
+"clear.action" = "Effacer";
+
+"status.paused" = "Enregistrement de clib suspendu";
+"status.open" = "Ouvrir clib";

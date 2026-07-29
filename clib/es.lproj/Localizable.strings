@@ -1,0 +1,110 @@
+"common.add" = "Añadir";
+"common.cancel" = "Cancelar";
+"common.close" = "Cerrar";
+"common.done" = "Listo";
+"common.ok" = "Aceptar";
+"common.remove" = "Eliminar";
+"common.save" = "Guardar";
+
+"item_type.all" = "Todo";
+"item_type.text" = "Texto";
+"item_type.image" = "Imágenes";
+"item_type.url" = "URL";
+"item_type.code" = "Código";
+"item_type.video" = "Vídeos";
+"item_type.audio" = "Audio";
+
+"time.last_hour" = "Última hora";
+"time.today" = "Hoy";
+"time.last_7_days" = "Últimos 7 días";
+"time.last_30_days" = "Últimos 30 días";
+
+"accessibility.drag_window" = "Mover ventana";
+"accessibility.pin" = "Mantener en primer plano";
+"accessibility.unpin" = "Desactivar primer plano";
+"clipboard.empty" = "No hay historial del portapapeles";
+"search.placeholder" = "Buscar contenido, origen o etiquetas";
+"filter.source_format" = "Origen: %@";
+"filter.tag_format" = "Etiqueta: %@";
+"favorite" = "Favoritos";
+
+"image.qr_more_format" = " (%d más)";
+"image.qr_summary_format" = "Código QR: %@%@";
+"image.ocr_summary_format" = "OCR: %@";
+
+"context.paste_plain_text" = "Pegar como texto sin formato";
+"context.search" = "Buscar";
+"context.open_url" = "Abrir URL";
+"context.recognize_image" = "Reconocer contenido de la imagen";
+"context.recognizing_image" = "Reconociendo imagen…";
+"context.recognize_image_again" = "Volver a reconocer la imagen";
+"context.copy_ocr" = "Copiar texto de la imagen";
+"context.copy_qr" = "Copiar contenido del código QR";
+"context.run_command" = "Ejecutar comando";
+"context.decode_format" = "Decodificar / Formatear";
+"context.edit" = "Editar contenido";
+"context.favorite" = "Añadir a favoritos";
+"context.unfavorite" = "Quitar de favoritos";
+"context.tags" = "Etiquetas";
+"context.delete" = "Eliminar";
+
+"command.launch_error" = "No se pudo ejecutar el comando";
+"command.finished_format" = "[clib] Comando finalizado con estado de salida: %d";
+
+"tag.new_ellipsis" = "Nueva etiqueta…";
+"tag.new" = "Nueva etiqueta";
+"tag.prompt" = "Introduce el nombre de la etiqueta que quieres añadir a este elemento.";
+"tag.placeholder" = "Nombre de la etiqueta";
+
+"privacy.title" = "Privacidad e historial";
+"privacy.pause" = "Pausar el registro del portapapeles";
+"privacy.ignore_sensitive" = "Ignorar contenido confidencial (contraseñas, tokens y claves privadas)";
+"privacy.description" = "El contenido excluido o identificado como confidencial nunca se guarda en el historial. El contenido copiado durante la pausa no se captura después. Los favoritos nunca caducan automáticamente.";
+"privacy.retention" = "Conservación del historial";
+"privacy.excluded_apps" = "No registrar estas aplicaciones";
+"privacy.excluded_apps_hint" = "Por ejemplo, gestores de contraseñas, aplicaciones bancarias o que contengan información privada";
+"privacy.application" = "Aplicación";
+"privacy.add_app_ellipsis" = "Añadir aplicación…";
+"privacy.choose_apps" = "Elige las aplicaciones que se excluirán del registro del portapapeles";
+"privacy.exclude" = "Excluir";
+
+"retention.forever" = "Conservar siempre";
+"retention.7_days" = "Conservar 7 días";
+"retention.30_days" = "Conservar 30 días";
+"retention.90_days" = "Conservar 90 días";
+
+"transform.base64_encode" = "Codificar en Base64";
+"transform.base64_decode" = "Decodificar Base64";
+"transform.jwt_decode" = "Decodificar JWT";
+"transform.format_json" = "Formatear JSON";
+"transform.compress_json" = "Comprimir JSON";
+"transform.parse_url" = "Analizar parámetros de URL de forma recursiva";
+"transform.invalid_base64" = "El contenido no es una cadena Base64 UTF-8 válida.";
+"transform.invalid_jwt" = "El contenido no es un JWT válido. La firma no se verifica.";
+"transform.run" = "Ejecutar";
+"transform.copy_result" = "Copiar resultado";
+
+"theme.menu" = "Tema";
+"theme.mist_blue" = "Azul bruma";
+"theme.mint" = "Menta fresca";
+"theme.sakura" = "Sakura suave";
+"theme.lavender" = "Lavanda crepuscular";
+"theme.amber" = "Ámbar cálido";
+"theme.graphite" = "Grafito premium";
+
+"menu.privacy_history_ellipsis" = "Privacidad e historial…";
+"menu.pause_recording" = "Pausar registro";
+"menu.resume_recording" = "Reanudar registro";
+"menu.clear_history_ellipsis" = "Borrar historial del portapapeles…";
+"menu.quit" = "Salir de clib";
+"menu.clipboard" = "Portapapeles";
+"menu.search" = "Buscar";
+"menu.filter_type" = "Filtrar por tipo";
+"menu.toggle_favorite" = "Añadir o quitar de favoritos";
+
+"clear.title" = "¿Borrar todo el historial del portapapeles?";
+"clear.message" = "Esta acción elimina todo el historial y no se puede deshacer.";
+"clear.action" = "Borrar";
+
+"status.paused" = "Registro de clib en pausa";
+"status.open" = "Abrir clib";

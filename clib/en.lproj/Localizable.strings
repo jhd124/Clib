@@ -1,0 +1,110 @@
+"common.add" = "Add";
+"common.cancel" = "Cancel";
+"common.close" = "Close";
+"common.done" = "Done";
+"common.ok" = "OK";
+"common.remove" = "Remove";
+"common.save" = "Save";
+
+"item_type.all" = "All";
+"item_type.text" = "Text";
+"item_type.image" = "Images";
+"item_type.url" = "URLs";
+"item_type.code" = "Code";
+"item_type.video" = "Videos";
+"item_type.audio" = "Audio";
+
+"time.last_hour" = "Last Hour";
+"time.today" = "Today";
+"time.last_7_days" = "Last 7 Days";
+"time.last_30_days" = "Last 30 Days";
+
+"accessibility.drag_window" = "Move window";
+"accessibility.pin" = "Keep on Top";
+"accessibility.unpin" = "Turn Off Keep on Top";
+"clipboard.empty" = "No clipboard history";
+"search.placeholder" = "Search content, source, or tags";
+"filter.source_format" = "Source: %@";
+"filter.tag_format" = "Tag: %@";
+"favorite" = "Favorites";
+
+"image.qr_more_format" = " (%d more)";
+"image.qr_summary_format" = "QR code: %@%@";
+"image.ocr_summary_format" = "OCR: %@";
+
+"context.paste_plain_text" = "Paste as Plain Text";
+"context.search" = "Search";
+"context.open_url" = "Open URL";
+"context.recognize_image" = "Recognize Image Content";
+"context.recognizing_image" = "Recognizing Image…";
+"context.recognize_image_again" = "Recognize Image Again";
+"context.copy_ocr" = "Copy Image Text";
+"context.copy_qr" = "Copy QR Code Content";
+"context.run_command" = "Run Command";
+"context.decode_format" = "Decode / Format";
+"context.edit" = "Edit Content";
+"context.favorite" = "Favorite";
+"context.unfavorite" = "Remove from Favorites";
+"context.tags" = "Tags";
+"context.delete" = "Delete";
+
+"command.launch_error" = "Couldn’t Run Command";
+"command.finished_format" = "[clib] Command finished with exit status: %d";
+
+"tag.new_ellipsis" = "New Tag…";
+"tag.new" = "New Tag";
+"tag.prompt" = "Enter a tag name to add to this item.";
+"tag.placeholder" = "Tag name";
+
+"privacy.title" = "Privacy & History";
+"privacy.pause" = "Pause clipboard recording";
+"privacy.ignore_sensitive" = "Ignore sensitive content (passwords, tokens, and private keys)";
+"privacy.description" = "Excluded content and content identified as sensitive are never saved to history. Content copied while recording is paused is not captured later. Favorites never expire automatically.";
+"privacy.retention" = "History Retention";
+"privacy.excluded_apps" = "Don’t Record These Apps";
+"privacy.excluded_apps_hint" = "For example, password managers, banking apps, or apps containing private information";
+"privacy.application" = "Application";
+"privacy.add_app_ellipsis" = "Add Application…";
+"privacy.choose_apps" = "Choose Applications to Exclude from Clipboard Recording";
+"privacy.exclude" = "Exclude";
+
+"retention.forever" = "Keep Forever";
+"retention.7_days" = "Keep for 7 Days";
+"retention.30_days" = "Keep for 30 Days";
+"retention.90_days" = "Keep for 90 Days";
+
+"transform.base64_encode" = "Base64 Encode";
+"transform.base64_decode" = "Base64 Decode";
+"transform.jwt_decode" = "JWT Decode";
+"transform.format_json" = "Format JSON";
+"transform.compress_json" = "Compress JSON";
+"transform.parse_url" = "Recursively Parse URL Parameters";
+"transform.invalid_base64" = "The content is not a valid UTF-8 Base64 string.";
+"transform.invalid_jwt" = "The content is not a valid JWT. The signature is not verified.";
+"transform.run" = "Run";
+"transform.copy_result" = "Copy Result";
+
+"theme.menu" = "Theme";
+"theme.mist_blue" = "Mist Blue";
+"theme.mint" = "Fresh Mint";
+"theme.sakura" = "Soft Sakura";
+"theme.lavender" = "Twilight Lavender";
+"theme.amber" = "Warm Amber";
+"theme.graphite" = "Premium Graphite";
+
+"menu.privacy_history_ellipsis" = "Privacy & History…";
+"menu.pause_recording" = "Pause Recording";
+"menu.resume_recording" = "Resume Recording";
+"menu.clear_history_ellipsis" = "Clear Clipboard History…";
+"menu.quit" = "Quit clib";
+"menu.clipboard" = "Clipboard";
+"menu.search" = "Search";
+"menu.filter_type" = "Filter by Type";
+"menu.toggle_favorite" = "Toggle Favorite";
+
+"clear.title" = "Clear All Clipboard History?";
+"clear.message" = "This deletes all history and cannot be undone.";
+"clear.action" = "Clear";
+
+"status.paused" = "clib Recording Paused";
+"status.open" = "Open clib";

@@ -15,17 +15,19 @@ struct ItemList {
     }
     
     @discardableResult
-    mutating func push(content: String, type: ItemType) -> Item {
-        let item = Item(content: content, type: type)
+    mutating func push(_ item: Item) -> Item {
         list.insert(item, at: 0)
         return item
     }
 
     @discardableResult
+    mutating func push(content: String, type: ItemType) -> Item {
+        push(Item(content: content, type: type))
+    }
+
+    @discardableResult
     mutating func push(imageData: Data) -> Item {
-        let item = Item(content: "", type: .image, imageData: imageData)
-        list.insert(item, at: 0)
-        return item
+        push(Item(content: "", type: .image, imageData: imageData))
     }
     
     func peek() -> Item? {

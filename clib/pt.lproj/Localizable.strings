@@ -1,0 +1,110 @@
+"common.add" = "Adicionar";
+"common.cancel" = "Cancelar";
+"common.close" = "Fechar";
+"common.done" = "Concluído";
+"common.ok" = "OK";
+"common.remove" = "Remover";
+"common.save" = "Salvar";
+
+"item_type.all" = "Tudo";
+"item_type.text" = "Texto";
+"item_type.image" = "Imagens";
+"item_type.url" = "URLs";
+"item_type.code" = "Código";
+"item_type.video" = "Vídeos";
+"item_type.audio" = "Áudio";
+
+"time.last_hour" = "Última hora";
+"time.today" = "Hoje";
+"time.last_7_days" = "Últimos 7 dias";
+"time.last_30_days" = "Últimos 30 dias";
+
+"accessibility.drag_window" = "Mover janela";
+"accessibility.pin" = "Manter no topo";
+"accessibility.unpin" = "Desativar manter no topo";
+"clipboard.empty" = "Nenhum histórico da área de transferência";
+"search.placeholder" = "Pesquisar conteúdo, origem ou etiquetas";
+"filter.source_format" = "Origem: %@";
+"filter.tag_format" = "Etiqueta: %@";
+"favorite" = "Favoritos";
+
+"image.qr_more_format" = " (mais %d)";
+"image.qr_summary_format" = "Código QR: %@%@";
+"image.ocr_summary_format" = "OCR: %@";
+
+"context.paste_plain_text" = "Colar como texto simples";
+"context.search" = "Pesquisar";
+"context.open_url" = "Abrir URL";
+"context.recognize_image" = "Reconhecer conteúdo da imagem";
+"context.recognizing_image" = "Reconhecendo imagem…";
+"context.recognize_image_again" = "Reconhecer imagem novamente";
+"context.copy_ocr" = "Copiar texto da imagem";
+"context.copy_qr" = "Copiar conteúdo do código QR";
+"context.run_command" = "Executar comando";
+"context.decode_format" = "Decodificar / Formatar";
+"context.edit" = "Editar conteúdo";
+"context.favorite" = "Adicionar aos favoritos";
+"context.unfavorite" = "Remover dos favoritos";
+"context.tags" = "Etiquetas";
+"context.delete" = "Excluir";
+
+"command.launch_error" = "Não foi possível executar o comando";
+"command.finished_format" = "[clib] Comando concluído com status de saída: %d";
+
+"tag.new_ellipsis" = "Nova etiqueta…";
+"tag.new" = "Nova etiqueta";
+"tag.prompt" = "Digite o nome da etiqueta que será adicionada a este item.";
+"tag.placeholder" = "Nome da etiqueta";
+
+"privacy.title" = "Privacidade e histórico";
+"privacy.pause" = "Pausar o registro da área de transferência";
+"privacy.ignore_sensitive" = "Ignorar conteúdo sensível (senhas, tokens e chaves privadas)";
+"privacy.description" = "Conteúdo excluído ou identificado como sensível nunca é salvo no histórico. O conteúdo copiado durante a pausa não é capturado posteriormente. Os favoritos nunca expiram automaticamente.";
+"privacy.retention" = "Retenção do histórico";
+"privacy.excluded_apps" = "Não registrar estes aplicativos";
+"privacy.excluded_apps_hint" = "Por exemplo, gerenciadores de senhas, aplicativos bancários ou que contenham informações privadas";
+"privacy.application" = "Aplicativo";
+"privacy.add_app_ellipsis" = "Adicionar aplicativo…";
+"privacy.choose_apps" = "Escolha os aplicativos que serão excluídos do registro da área de transferência";
+"privacy.exclude" = "Excluir";
+
+"retention.forever" = "Manter para sempre";
+"retention.7_days" = "Manter por 7 dias";
+"retention.30_days" = "Manter por 30 dias";
+"retention.90_days" = "Manter por 90 dias";
+
+"transform.base64_encode" = "Codificar em Base64";
+"transform.base64_decode" = "Decodificar Base64";
+"transform.jwt_decode" = "Decodificar JWT";
+"transform.format_json" = "Formatar JSON";
+"transform.compress_json" = "Comprimir JSON";
+"transform.parse_url" = "Analisar parâmetros de URL recursivamente";
+"transform.invalid_base64" = "O conteúdo não é uma string Base64 UTF-8 válida.";
+"transform.invalid_jwt" = "O conteúdo não é um JWT válido. A assinatura não é verificada.";
+"transform.run" = "Executar";
+"transform.copy_result" = "Copiar resultado";
+
+"theme.menu" = "Tema";
+"theme.mist_blue" = "Azul névoa";
+"theme.mint" = "Menta fresca";
+"theme.sakura" = "Sakura suave";
+"theme.lavender" = "Lavanda crepuscular";
+"theme.amber" = "Âmbar quente";
+"theme.graphite" = "Grafite premium";
+
+"menu.privacy_history_ellipsis" = "Privacidade e histórico…";
+"menu.pause_recording" = "Pausar registro";
+"menu.resume_recording" = "Retomar registro";
+"menu.clear_history_ellipsis" = "Limpar histórico da área de transferência…";
+"menu.quit" = "Sair do clib";
+"menu.clipboard" = "Área de transferência";
+"menu.search" = "Pesquisar";
+"menu.filter_type" = "Filtrar por tipo";
+"menu.toggle_favorite" = "Adicionar ou remover dos favoritos";
+
+"clear.title" = "Limpar todo o histórico da área de transferência?";
+"clear.message" = "Esta ação exclui todo o histórico e não pode ser desfeita.";
+"clear.action" = "Limpar";
+
+"status.paused" = "Registro do clib pausado";
+"status.open" = "Abrir clib";

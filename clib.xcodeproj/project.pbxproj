@@ -12,6 +12,10 @@
 		E267BB602C0382B5004F6B76 /* ItemListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E267BB5F2C0382B5004F6B76 /* ItemListView.swift */; };
 		E267BB622C05400F004F6B76 /* ItemList.swift in Sources */ = {isa = PBXBuildFile; fileRef = E267BB612C05400F004F6B76 /* ItemList.swift */; };
 		E267BB652C09E1B4004F6B76 /* ClipboardViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E267BB642C09E1B4004F6B76 /* ClipboardViewModel.swift */; };
+		A10000012E00000100000001 /* ClipboardPrivacy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022E00000100000001 /* ClipboardPrivacy.swift */; };
+		A10000032E00000100000001 /* ImageRecognition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000042E00000100000001 /* ImageRecognition.swift */; };
+		A10000052E00000100000001 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000062E00000100000001 /* Localization.swift */; };
+		A10000072E00000100000001 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = A10000082E00000100000001 /* Localizable.strings */; };
 		E2F9B5F52BF90CF40065B2FF /* clibApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2F9B5F42BF90CF40065B2FF /* clibApp.swift */; };
 		E2F9B5FB2BF90CF60065B2FF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E2F9B5FA2BF90CF60065B2FF /* Assets.xcassets */; };
 		E2F9B5FE2BF90CF60065B2FF /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E2F9B5FD2BF90CF60065B2FF /* Preview Assets.xcassets */; };
@@ -43,6 +47,14 @@
 		E267BB5F2C0382B5004F6B76 /* ItemListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItemListView.swift; sourceTree = "<group>"; };
 		E267BB612C05400F004F6B76 /* ItemList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItemList.swift; sourceTree = "<group>"; };
 		E267BB642C09E1B4004F6B76 /* ClipboardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardViewModel.swift; sourceTree = "<group>"; };
+		A10000022E00000100000001 /* ClipboardPrivacy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardPrivacy.swift; sourceTree = "<group>"; };
+		A10000042E00000100000001 /* ImageRecognition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageRecognition.swift; sourceTree = "<group>"; };
+		A10000062E00000100000001 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
+		A10000092E00000100000001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		A100000A2E00000100000001 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		A100000B2E00000100000001 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/Localizable.strings; sourceTree = "<group>"; };
+		A100000C2E00000100000001 /* pt */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pt; path = pt.lproj/Localizable.strings; sourceTree = "<group>"; };
+		A100000D2E00000100000001 /* es */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = es; path = es.lproj/Localizable.strings; sourceTree = "<group>"; };
 		E2F9B5F12BF90CF40065B2FF /* clib.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = clib.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2F9B5F42BF90CF40065B2FF /* clibApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = clibApp.swift; sourceTree = "<group>"; };
 		E2F9B5FA2BF90CF60065B2FF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -129,6 +141,10 @@
 			isa = PBXGroup;
 			children = (
 				E2F9B5F42BF90CF40065B2FF /* clibApp.swift */,
+				A10000062E00000100000001 /* Localization.swift */,
+				A10000022E00000100000001 /* ClipboardPrivacy.swift */,
+				A10000042E00000100000001 /* ImageRecognition.swift */,
+				A10000082E00000100000001 /* Localizable.strings */,
 				E226DB362C1972E20039FCDC /* services */,
 				E267BB5F2C0382B5004F6B76 /* ItemListView.swift */,
 				E267BB632C09E13A004F6B76 /* ViewModel */,
@@ -250,6 +266,10 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
+				es,
+				fr,
+				pt,
+				"zh-Hans",
 				Base,
 			);
 			mainGroup = E2F9B5E82BF90CF40065B2FF;
@@ -269,6 +289,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000072E00000100000001 /* Localizable.strings in Resources */,
 				E2F9B5FE2BF90CF60065B2FF /* Preview Assets.xcassets in Resources */,
 				E2F9B5FB2BF90CF60065B2FF /* Assets.xcassets in Resources */,
 			);
@@ -297,6 +318,9 @@
 			files = (
 				E267BB622C05400F004F6B76 /* ItemList.swift in Sources */,
 				E267BB652C09E1B4004F6B76 /* ClipboardViewModel.swift in Sources */,
+				A10000012E00000100000001 /* ClipboardPrivacy.swift in Sources */,
+				A10000032E00000100000001 /* ImageRecognition.swift in Sources */,
+				A10000052E00000100000001 /* Localization.swift in Sources */,
 				E267BB5E2C037FB3004F6B76 /* ItemType.swift in Sources */,
 				E2F9B5F52BF90CF40065B2FF /* clibApp.swift in Sources */,
 				E267BB5C2C037C66004F6B76 /* Item.swift in Sources */,
@@ -322,6 +346,21 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXVariantGroup section */
+		A10000082E00000100000001 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				A10000092E00000100000001 /* en */,
+				A100000A2E00000100000001 /* zh-Hans */,
+				A100000B2E00000100000001 /* fr */,
+				A100000C2E00000100000001 /* pt */,
+				A100000D2E00000100000001 /* es */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
 
 /* Begin PBXTargetDependency section */
 		E2F9B6062BF90CF60065B2FF /* PBXTargetDependency */ = {
